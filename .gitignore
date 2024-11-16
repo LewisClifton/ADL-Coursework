@@ -1,0 +1,5 @@
+data/test_data.pth.tar
+data/train_data.pth.tar
+data/val_data.pth.tar
+
+__pycache__/
