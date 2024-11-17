@@ -1,126 +1,239 @@
 import torch
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader
+import torch.nn.functional as F
 import torch.optim as optim
 import torch.nn as nn
 import numpy as np
 import cv2
+from PIL import Image
+from datetime import datetime
+import os
 
 from dataset import MIT
 from model import MrCNN
+from metrics import calculate_auc
 
-# Get train data
-train_data = MIT(dataset_path="data/train_data.pth.tar")
-train_data = Subset(train_data, list(range(5)))
-train_loader = DataLoader(train_data, batch_size=1)
 
-# Get validation data
-val_data = MIT(dataset_path="data/val_data.pth.tar")
-val_loader = DataLoader(val_data, batch_size=2)
-
-# Choose device
+# Set up cuda
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-# Hyperparameters
-learning_rate = 1e-4
-num_epochs = 1
-
-# Initialise model
-model = MrCNN().to(device)
-
-# Use cross entropy loss as stated in the reference paper
-criterion = nn.BCELoss()
-
-# Use adam optimiser
-optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+torch.backends.cudnn.enabled = True
 
 
-# Training Loop
-for epoch in range(num_epochs):
+# Load model checkpoint
+def load_checkpoint(checkpoint_path):
+    checkpoint = torch.load(checkpoint_path, weights_only=True)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    start_epoch = checkpoint['epoch']
+
+    return model, optimizer, start_epoch
+
+
+# Save model checkpoint
+def save_checkpoint(model, optimizer, epoch, checkpoint_dir):
+    torch.save({'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'epoch': epoch},
+                f"{checkpoint_dir}/{datetime.now().strftime("%Y_%m_%d_%p%I_%M")}.pth")
+
+def apply_conv_weight_constraint(model, weight_constraint=0.1):
+    with torch.no_grad():
+        for conv in [model.stream1.conv1, model.stream2.conv1, model.stream3.conv1]:
+            norm = torch.linalg.vector_norm(conv.weight, ord=2, dim=(1, 2, 3), keepdim=True)
+            if norm.item() > weight_constraint:
+                conv.weight = conv.weight / norm
+
+def increase_momentum_linear(optimizer, start_momentum, momentum_delta, epoch):
+    optimizer.param_groups[0]['momentum'] = start_momentum + epoch * momentum_delta
+
+def train_epoch(model, train_loader, optimizer):
     # Set the model to training mode
     model.train()  
 
     running_loss = 0.0
     correct_predictions = 0
     total_samples = 0
-    
-    # # Iterate over the training data
-    # for (inputs, labels) in train_loader:    
+    batch = 0
+
+    # Iterate over the training data
+    for (inputs, labels) in train_loader:    
+        batch+=1
+        print(batch)
         
-    #     # Get the different resolutions for each image in the batch (shape=[batch_size, 3, 42, 42])
-    #     x1 = inputs[:, 0, :, :, :].to(device) # 400x400
-    #     x2 = inputs[:, 1, :, :, :].to(device) # 250x250
-    #     x3 = inputs[:, 2, :, :, :].to(device) # 150x150
+        # Get the different resolutions for each image in the batch (shape=[batch_size, 3, 42, 42])
+        x1 = inputs[:, 0, :, :, :].to(device) # 400x400
+        x2 = inputs[:, 1, :, :, :].to(device) # 250x250
+        x3 = inputs[:, 2, :, :, :].to(device) # 150x150
 
-    #     labels = labels.to(device).float()
+        labels = labels.to(device).float()
         
-    #     # Zero the gradients
-    #     optimizer.zero_grad()
+        # Zero the gradients
+        optimizer.zero_grad()
 
-    #     # Get model output for the batch
-    #     outputs = model(x1, x2, x3).squeeze(1)
+        # Get model output for the batch
+        outputs = model(x1, x2, x3).squeeze(1)
 
-    #     # Compute the batch loss
-    #     loss = criterion(outputs, labels)
+        # Compute the batch loss
+        loss = criterion(outputs, labels)
         
-    #     # Backward pass: Compute gradients
-    #     loss.backward()
+        # Backward pass: Compute gradients
+        loss.backward()
         
-    #     # Update the weights
-    #     optimizer.step()
+        # Update the weights
+        optimizer.step()
 
-    #     # Track the running loss
-    #     running_loss += loss.item()
+        # Track the running loss
+        running_loss += loss.item()
 
-    #     # Convert predictions to binary (0 or 1) for accuracy calculation
-    #     predicted = (outputs > 0.5).float()
+        # Convert predictions to binary (0 or 1) for accuracy calculation
+        predicted = (outputs > 0.5).float()
 
-    #     # Calculate number of correct predictions
-    #     correct_predictions += (predicted.squeeze() == labels).sum().item()
-    #     total_samples += labels.size(0)
+        # Calculate number of correct predictions
+        correct_predictions += (predicted.squeeze() == labels).sum().item()
+        total_samples += labels.size(0)
 
     # # Calculate the average loss and accuracy for the current epoch
-    # avg_loss = running_loss / len(train_loader)
-    # accuracy = correct_predictions / total_samples * 100
+    avg_loss = running_loss / len(train_loader)
+    accuracy = correct_predictions / total_samples * 100
 
-    # print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {avg_loss:.4f}, Accuracy: {accuracy:.2f}%")
+    return avg_loss, accuracy
 
-    # Validation step after each epoch
-    model.eval()  # Set the model to evaluation mode
-    val_loss = 0.0
-    correct_predictions_val = 0
-    total_samples_val = 0
-    print("TEST")
-    with torch.no_grad():  # No gradient computation during validation
-        for _, (inputs, labels)  in enumerate(val_loader):
-            print("TEST")
-            # Get the different resolutions for each image in the batch (shape=[batch_size, 3, 42, 42])
+
+def val_epoch(model, val_loader, val_data):
+    # Set the model to evaluation mode
+    model.eval()  
+
+    # Create empty predicted saliency maps to populate using the model
+    saliency_maps = np.empty( shape=(len(val_data.dataset), 50, 50) )
+
+    with torch.no_grad(): 
+
+        pixel_index = 0
+
+        for _, (inputs, _) in enumerate(val_loader):
+            
+            # Get the different resolutions for each crop in the batch
             x1 = inputs[:, 0, :, :, :].to(device) # 400x400
             x2 = inputs[:, 1, :, :, :].to(device) # 250x250
             x3 = inputs[:, 2, :, :, :].to(device) # 150x150
 
-            labels = labels.to(device)
+            # Get fixation value for each crop in the batch
+            fixations = model(x1, x2, x3).cpu().numpy()
 
-            # Forward pass on validation data
-            outputs = model(x1, x2, x3)
+            # Get the number of crop fixations predicted (batch size)
+            pixels = fixations.shape[0]
+            for i in range(pixels):
 
-            # Compute the validation loss
-            loss = criterion(outputs.squeeze(), labels.float())
-            
-            val_loss += loss.item()
+                # Get the fixation map this fixation value belonds to
+                map_index = pixel_index // val_data.num_crops
+                
+                # Get index of fixation value
+                row = (pixel_index - (map_index * val_data.num_crops)) // 50
+                col = (pixel_index - (map_index * val_data.num_crops)) % 50
 
-            # Convert predictions to binary for accuracy calculation
-            predicted = (outputs > 0.5).float()
-            
-            # Calculate number of correct predictions
-            correct_predictions_val += (predicted.squeeze() == labels).sum().item()
-            total_samples_val += labels.size(0)
+                # Write the fixation value to the necessary fixation map
+                saliency_maps[map_index, row, col] = fixations[i].item()
 
-    # Calculate average validation loss and accuracy
-    avg_val_loss = val_loss / len(val_loader)
-    val_accuracy = correct_predictions_val / total_samples_val * 100
+                pixel_index += 1                
 
-    print(f"Validation Loss: {avg_val_loss:.4f}, Validation Accuracy: {val_accuracy:.2f}%")
+        preds = {}
+        targets = {}
 
-    # Optionally save the model at intervals
-    # torch.save(model.state_dict(), f'mrcnn_epoch_{epoch+1}.pth')
+        for map_idx in range(saliency_maps.shape[0]):
+            _, H, W = val_data.dataset[map_idx]["X"].cpu().numpy().shape
+            image_name = val_data.dataset[map_idx]["file"].replace(".jpeg", "")
 
+            # Upscale the predicted fixation map
+            pred_fixMap = cv2.resize(saliency_maps[map_idx], (W, H), interpolation=cv2.INTER_CUBIC)
+
+            # Obtain the ground truth fixation map
+            GT_fixMap = Image.open(os.path.join(os.getcwd(), GT_fixations_dir, f"{image_name}_fixMap.jpg"))
+            GT_fixMap = np.array(GT_fixMap)
+
+            # GT_fixPoints = Image.open(os.path.join(os.getcwd(), GT_fixations_dir, f"{name}_fixPts.jpg"))
+            # GT_fixPoints = np.array(GT_fixPoints)
+
+            # Add to dictionary
+            preds[image_name] = pred_fixMap
+            targets[image_name] = GT_fixMap
+
+        # Calculate validation auc metric
+        avg_auc = calculate_auc(preds, targets)
+
+        return avg_auc
+
+
+
+if __name__ == '__main__':
+
+    # Saved trained models path
+    model_dir = os.path.join(os.getcwd(), 'trained/')
+
+    # Checkpoint path
+    checkpoint_dir = '' # os.path.join(os.getcwd(), 'checkpoints')
+    load_from_checkpoint = False
+    checkpoint_freq = 200 # every checkpoint_freq epochs, save model checkpoint
+
+    # Get train and validation data
+    train_data = MIT(dataset_path="data/train_data.pth.tar")
+    val_data = MIT(dataset_path="data/val_data.pth.tar")
+    print("Loaded datasets.")
+
+    # Ground truth directory
+    GT_fixations_dir = "data/ALLFIXATIONMAPS"
+
+    # Hyperparameters
+    total_epochs = 1
+    start_epoch = 0
+    batch_size = 256
+    learning_rate = 0.02
+    start_momentum = 0.9
+    end_momentum = 0.99
+    momentum_delta = (end_momentum - start_momentum) / total_epochs # linear momentum increase
+    weight_decay = 2e-4
+    
+    # Initialise model
+    model = MrCNN().to(device)
+
+    # Create data loaders
+    train_loader = DataLoader(train_data, batch_size=256)
+    val_loader = DataLoader(val_data, batch_size=256)
+
+    # Use cross entropy loss as stated in the reference paper
+    criterion = nn.BCELoss()
+
+    # Initialise SGD optimiser
+    optimizer = optim.SGD(model.parameters(), lr=learning_rate, momentum=start_momentum, weight_decay=weight_decay)
+
+    # Load from checkpoints if required
+    if load_from_checkpoint:
+        print("Loading from checkpoint")
+        model, optimizer, start_epoch = load_checkpoint(checkpoint_dir)
+
+    print(f'Starting training (Epoch {start_epoch+1}/{total_epochs})')
+
+    # Training Loop
+    for epoch in range(start_epoch, total_epochs):
+        
+        # Performing single train epoch and get train metrics
+        avg_train_loss, train_accuracy = train_epoch(model, train_loader, optimizer)
+
+        # Perform single validation epoch and get validation metrics
+        avg_val_auc = val_epoch(model, val_loader, val_data)
+
+        print(f"Epoch [{epoch+1}/{total_epochs}], Train BCE loss: {avg_train_loss:.4f}, Train accuracy: {train_accuracy:.2f}, Validaton mean auc: {avg_val_auc}")
+
+
+        # Linearly increase momentum to end momentum
+        increase_momentum_linear(optimizer, start_momentum, momentum_delta, epoch)
+        
+        # Apply weight constraint to the first conv layer in the network
+        apply_conv_weight_constraint(model)
+
+
+        # Save checkpoint
+        if epoch % checkpoint_freq == 0:
+            save_checkpoint(model, optimizer, epoch, checkpoint_dir)
+    
+    # Save trained model
+    torch.save(model.state_dict(), os.path.join(model_dir, f'{datetime.now().strftime("%Y_%m_%d_%p%I_%M")}.pth'))

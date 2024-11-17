@@ -9,7 +9,7 @@ def roc_auc(pred, target, n_points=20, include_prior=False):
         """
 
         target = np.array(target)/255        
-        generated = pred
+        generated = np.array(pred)
         # min max normalisation
         generated = (generated - generated.min())/(generated.max() - generated.min())
 

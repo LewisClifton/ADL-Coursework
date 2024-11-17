@@ -14,7 +14,6 @@ class _MrCNNStream(nn.Module):
     def __init__(self):
         super(_MrCNNStream, self).__init__()
         
-        # From reference paper:
         # "96 filters with size 7×7 in the first C layer"
         # "160 and 288 filters with size 3×3 respectively in the second and the third C layer"
         # "Stride to 1 and perform valid convolution operations, disregarding the map borders" (implies padding=0)
@@ -22,34 +21,43 @@ class _MrCNNStream(nn.Module):
         self.conv2 = nn.Conv2d(in_channels=96, out_channels=160, kernel_size=3, stride=1, padding=0)
         self.conv3 = nn.Conv2d(in_channels=160, out_channels=288, kernel_size=3, stride=1, padding=0)
 
-        # From reference paper: 
+        # "Dropout was used with the corruption probability of 0.5 in the third C layer"
+        self.dropout1 = nn.Dropout2d(p=0.5)
+
         # "Use 2×2 pooling windows in all P layers"
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
 
-        # From reference paper: 
         # "512 neurons in all FC layers"
         self.fc = nn.Linear(in_features=(288 * 3 * 3), out_features=512)
 
-        # From reference paper: 
+        # "Dropout was used with the corruption probability of 0.5 in ... and the subsequent two FC layers
+        self.dropout2 = nn.Dropout2d(p=0.5)
+
         # "Rectified Linear Unit (ReLU) in all C layers and FC layer"
         self.relu = nn.ReLU()
 
     def forward(self, x):
         # First layer
-        x = self.relu(self.conv1(x))
+        x = self.conv1(x)
+        x = self.relu(x)
         x = self.pool(x)
 
         # Second layer
-        x = self.relu(self.conv2(x))
+        x = self.conv2(x)
+        x = self.relu(x)
         x = self.pool(x)
 
         # Third layer
-        x = self.relu(self.conv3(x))
+        x = self.conv3(x)
+        x = self.relu(x)
+        x = self.dropout1(x)
         x = self.pool(x)
-
+        
         # FC layer at end of stream
         x = torch.flatten(x, start_dim=1)
-        out = self.relu(self.fc(x))
+        x = self.fc(x)
+        x = self.dropout2(x)
+        out = self.relu(x)
 
         # Return stream output
         return out
@@ -58,18 +66,18 @@ class MrCNN(nn.Module):
     def __init__(self):
         super(MrCNN, self).__init__()
 
-        # From reference paper:
         # "Mr-CNN starts from three streams in lower layer"
         self.stream1 = _MrCNNStream()
         self.stream2 = _MrCNNStream()
         self.stream3 = _MrCNNStream()
         
-        # From reference paper:
         # "The three streams are fused using another FC layer"
         # "512 neurons in all FC layers"
         self.fc = nn.Linear(in_features=(512 * 3), out_features=512)
 
-        # From reference paper:
+        # "Dropout was used with the corruption probability of 0.5 in ... and the subsequent two FC layers
+        self.dropout = nn.Dropout2d(p=0.5)
+
         # "Followed by one logistic regression layer at the end to perform classification"
         # "512 neurons in all FC layers"
         self.output = nn.Linear(in_features=512, out_features=1)
@@ -84,10 +92,13 @@ class MrCNN(nn.Module):
 
         # Fuse the stream outputs using the FC layer
         streams_out = torch.cat((stream_out1, stream_out2, stream_out3), dim=1)
-        fused = F.relu(self.fc( streams_out ))
+        fused = self.fc(streams_out)
+        fused = F.relu(fused)
+        fused = self.dropout(fused)
         
         # Get the output from the logistic regression layer to perform classification
-        out = self.sigmoid(self.output(fused))
+        logit = self.output(fused)
+        out = self.sigmoid(logit)
         
         # Return MrCNN output
         return out
