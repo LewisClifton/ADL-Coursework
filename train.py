@@ -190,7 +190,7 @@ if __name__ == '__main__':
     start_momentum = args.start_momentum
     end_momentum = args.end_momentum
     momentum_delta = (end_momentum - start_momentum) / total_epochs # linear momentum increase
-    weight_decay = args.weight_decay
+    weight_decay = args.conv_weight_decay
 
     # Checkpoint path
     checkpoint_dir = args.checkpoint_path
