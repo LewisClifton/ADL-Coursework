@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.integrate import simps
+from scipy.integrate import simpson
 
 
 def roc_auc(pred, target, n_points=20, include_prior=False):
@@ -22,7 +22,7 @@ def roc_auc(pred, target, n_points=20, include_prior=False):
         calculate_roc = np.vectorize(roc)
 
         x = np.linspace(0, 1, n_points)
-        auc = simps(calculate_roc(x))/n_points
+        auc = simpson(calculate_roc(x))/n_points
 
         return auc
 

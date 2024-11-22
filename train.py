@@ -170,7 +170,16 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--out_dir', type=str, help="Path to directory for dataset, saved images, saved models", required=True)
-    
+    parser.add_argument('--epochs', type=int, help="Number of epochs to train with", default=5)
+    total_epochs = 1
+    start_epoch = 0
+    batch_size = 256
+    learning_rate = 0.02
+    start_momentum = 0.9
+    end_momentum = 0.99
+    momentum_delta = (end_momentum - start_momentum) / total_epochs # linear momentum increase
+    weight_decay = 2e-4
+
     out_dir = parser.out_dir
 
     # Checkpoint path
