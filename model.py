@@ -76,7 +76,7 @@ class MrCNN(nn.Module):
         self.fc = nn.Linear(in_features=(512 * 3), out_features=512)
 
         # "Dropout was used with the corruption probability of 0.5 in ... and the subsequent two FC layers
-        self.dropout = nn.Dropout2d(p=0.5)
+        self.dropout = nn.Dropout(p=0.5)
 
         # "Followed by one logistic regression layer at the end to perform classification"
         # "512 neurons in all FC layers"
