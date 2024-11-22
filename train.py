@@ -8,10 +8,12 @@ import cv2
 from PIL import Image
 from datetime import datetime
 import os
+import argparse
 
 from dataset import MIT
 from model import MrCNN
 from metrics import calculate_auc
+from utils import *
 
 
 # Set up cuda
@@ -39,9 +41,9 @@ def save_checkpoint(model, optimizer, epoch, checkpoint_dir):
 def apply_conv_weight_constraint(model, weight_constraint=0.1):
     with torch.no_grad():
         for conv in [model.stream1.conv1, model.stream2.conv1, model.stream3.conv1]:
-            norm = torch.linalg.vector_norm(conv.weight, ord=2, dim=(1, 2, 3), keepdim=True)
-            if norm.item() > weight_constraint:
-                conv.weight = conv.weight / norm
+            norm = torch.linalg.norm(conv.weight, ord=2, dim=(2,3), keepdim=True)
+            norm_condition = (norm > weight_constraint).expand_as(conv.weight.data)
+            conv.weight.data[norm_condition] /= (norm + 1e-8).expand_as(conv.weight.data)[norm_condition]
 
 def increase_momentum_linear(optimizer, start_momentum, momentum_delta, epoch):
     optimizer.param_groups[0]['momentum'] = start_momentum + epoch * momentum_delta
@@ -166,8 +168,10 @@ def val_epoch(model, val_loader, val_data):
 
 if __name__ == '__main__':
 
-    # Saved trained models path
-    model_dir = os.path.join(os.getcwd(), 'trained/')
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--out_dir', type=str, help="Path to directory for dataset, saved images, saved models", required=True)
+    
+    out_dir = parser.out_dir
 
     # Checkpoint path
     checkpoint_dir = '' # os.path.join(os.getcwd(), 'checkpoints')
@@ -175,8 +179,8 @@ if __name__ == '__main__':
     checkpoint_freq = 200 # every checkpoint_freq epochs, save model checkpoint
 
     # Get train and validation data
-    train_data = MIT(dataset_path="data/train_data.pth.tar")
-    val_data = MIT(dataset_path="data/val_data.pth.tar")
+    train_data = MIT(dataset_path=os.path.join("data/train_data.pth.tar"))
+    val_data = MIT(dataset_path=os.path.join("data/val_data.pth.tar"))
     print("Loaded datasets.")
 
     # Ground truth directory
@@ -212,6 +216,12 @@ if __name__ == '__main__':
 
     print(f'Starting training (Epoch {start_epoch+1}/{total_epochs})')
 
+    train_metrics = {
+        "Average BCE loss per train epoch" : [],
+        "Average accuracy per train epoch" : [],
+        "Average val auc per train epoch" : [] 
+    }
+
     # Training Loop
     for epoch in range(start_epoch, total_epochs):
         
@@ -221,8 +231,11 @@ if __name__ == '__main__':
         # Perform single validation epoch and get validation metrics
         avg_val_auc = val_epoch(model, val_loader, val_data)
 
-        print(f"Epoch [{epoch+1}/{total_epochs}], Train BCE loss: {avg_train_loss:.4f}, Train accuracy: {train_accuracy:.2f}, Validaton mean auc: {avg_val_auc}")
+        train_metrics["Average BCE loss per train epoch"].append(avg_train_loss, 2)
+        train_metrics["Average accuracy per train epoch"].append(train_accuracy, 2)
+        train_metrics['Average val auc per train epoch'].append(avg_train_loss, 2)
 
+        print(f"Epoch [{epoch+1}/{total_epochs}], Train BCE loss: {avg_train_loss:.4f}, Train accuracy: {train_accuracy:.2f}, Validaton mean auc: {avg_val_auc}")
 
         # Linearly increase momentum to end momentum
         increase_momentum_linear(optimizer, start_momentum, momentum_delta, epoch)
@@ -230,10 +243,28 @@ if __name__ == '__main__':
         # Apply weight constraint to the first conv layer in the network
         apply_conv_weight_constraint(model)
 
-
         # Save checkpoint
         if epoch % checkpoint_freq == 0:
             save_checkpoint(model, optimizer, epoch, checkpoint_dir)
-    
+
+    # Output directory
+    date = datetime.now()
+    out_dir = os.path.join(out_dir, f'trained/{date.strftime("%Y_%m_%d_%p%I_%M")}')
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
+
     # Save trained model
-    torch.save(model.state_dict(), os.path.join(model_dir, f'{datetime.now().strftime("%Y_%m_%d_%p%I_%M")}.pth'))
+    torch.save(model.state_dict(), os.path.join(out_dir, f'cnn.pth'))
+
+    # Write log about model and training performance
+    hyperparameters = {
+        'total_epochs' : total_epochs,
+        'start_epoch' : start_epoch,
+        'batch_size' : batch_size,
+        'learning_rate' : learning_rate,
+        'start_momentum' : start_momentum,
+        'end_momentum' : end_momentum,
+        'momentum_delta' : momentum_delta,
+        'weight_decay' : weight_decay,
+    }
+    save_log(out_dir, date, **{**train_metrics, **hyperparameters})
