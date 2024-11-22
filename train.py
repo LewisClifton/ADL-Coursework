@@ -169,41 +169,40 @@ def val_epoch(model, val_loader, val_data):
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--out_dir', type=str, help="Path to directory for dataset, saved images, saved models", required=True)
+    parser.add_argument('--data_dir', type=str, help="Path to directory for dataset", required=True)
+    parser.add_argument('--out_dir', type=str, help="Path to directory for saving model/log", required=True)
     parser.add_argument('--epochs', type=int, help="Number of epochs to train with", default=5)
-    total_epochs = 1
-    start_epoch = 0
-    batch_size = 256
-    learning_rate = 0.02
-    start_momentum = 0.9
-    end_momentum = 0.99
-    momentum_delta = (end_momentum - start_momentum) / total_epochs # linear momentum increase
-    weight_decay = 2e-4
-
+    parser.add_argument('--batch_size', type=int, help="Minibatch size", default=256)
+    parser.add_argument('--learning_rate', type=float, help="Learning rate", default=0.02)
+    parser.add_argument('--start_momentum', type=float, help="Optimiser start momentum", default=0.9)
+    parser.add_argument('--end_momentum', type=float, help="Optimiser end momentum", default=0.99)
+    parser.add_argument('--conv_weight_decay', type=float, help="Weight decay threshold of the first convolutional layer", default=2e-4)
+    parser.add_argument('--checkpoint_path', type=str, help="Relative path of saved checkpoint from --out_dir")
+    parser.add_argument('--checkpoint_freq', type=int, help="How many epochs between saving checkpoint. -1: don't save checkpoints", default=-1)
+    args = parser.parse_args()
+    
+    data_dir = parser.data_dir
     out_dir = parser.out_dir
+    total_epochs = args.epochs
+    start_epoch = 0
+    batch_size = args.batch_size
+    learning_rate = args.learning_rate
+    start_momentum = args.start_momentum
+    end_momentum = args.end_momentum
+    momentum_delta = (end_momentum - start_momentum) / total_epochs # linear momentum increase
+    weight_decay = args.weight_decay
 
     # Checkpoint path
-    checkpoint_dir = '' # os.path.join(os.getcwd(), 'checkpoints')
-    load_from_checkpoint = False
-    checkpoint_freq = 200 # every checkpoint_freq epochs, save model checkpoint
+    checkpoint_dir = args.checkpoint_path
+    checkpoint_freq = args.checkpoint_freq # every checkpoint_freq epochs, save model checkpoint
 
     # Get train and validation data
-    train_data = MIT(dataset_path=os.path.join("data/train_data.pth.tar"))
-    val_data = MIT(dataset_path=os.path.join("data/val_data.pth.tar"))
+    train_data = MIT(dataset_path=os.path.join(data_dir, "train_data.pth.tar"))
+    val_data = MIT(dataset_path=os.path.join(data_dir, "val_data.pth.tar"))
     print("Loaded datasets.")
 
     # Ground truth directory
-    GT_fixations_dir = "data/ALLFIXATIONMAPS"
-
-    # Hyperparameters
-    total_epochs = 1
-    start_epoch = 0
-    batch_size = 256
-    learning_rate = 0.02
-    start_momentum = 0.9
-    end_momentum = 0.99
-    momentum_delta = (end_momentum - start_momentum) / total_epochs # linear momentum increase
-    weight_decay = 2e-4
+    GT_fixations_dir = os.path.join(data_dir, "ALLFIXATIONMAPS")
     
     # Initialise model
     model = MrCNN().to(device)
@@ -219,7 +218,7 @@ if __name__ == '__main__':
     optimizer = optim.SGD(model.parameters(), lr=learning_rate, momentum=start_momentum, weight_decay=weight_decay)
 
     # Load from checkpoints if required
-    if load_from_checkpoint:
+    if checkpoint_dir:
         print("Loading from checkpoint")
         model, optimizer, start_epoch = load_checkpoint(checkpoint_dir)
 
@@ -253,8 +252,9 @@ if __name__ == '__main__':
         apply_conv_weight_constraint(model)
 
         # Save checkpoint
-        if epoch % checkpoint_freq == 0:
-            save_checkpoint(model, optimizer, epoch, checkpoint_dir)
+        if checkpoint_freq != -1:
+            if epoch % checkpoint_freq == 0:
+                save_checkpoint(model, optimizer, epoch, checkpoint_dir)
 
     # Output directory
     date = datetime.now()
