@@ -7,6 +7,7 @@ import numpy as np
 import cv2
 from PIL import Image
 from datetime import datetime
+import time
 import os
 import argparse
 
@@ -172,6 +173,7 @@ if __name__ == '__main__':
     parser.add_argument('--data_dir', type=str, help="Path to directory for dataset", required=True)
     parser.add_argument('--out_dir', type=str, help="Path to directory for saving model/log", required=True)
     parser.add_argument('--epochs', type=int, help="Number of epochs to train with", default=5)
+    parser.add_argument('--use_val', type=bool, help='Track validation metrics during training', default=False)
     parser.add_argument('--batch_size', type=int, help="Minibatch size", default=256)
     parser.add_argument('--learning_rate', type=float, help="Learning rate", default=0.02)
     parser.add_argument('--start_momentum', type=float, help="Optimiser start momentum", default=0.9)
@@ -183,6 +185,8 @@ if __name__ == '__main__':
     
     data_dir = args.data_dir
     out_dir = args.out_dir
+    use_val = args.use_val
+
     total_epochs = args.epochs
     start_epoch = 0
     batch_size = args.batch_size
@@ -230,20 +234,30 @@ if __name__ == '__main__':
         "Average val auc per train epoch" : [] 
     }
 
+    train_start_time = time.time()
+
     # Training Loop
     for epoch in range(start_epoch, total_epochs):
+
+        epoch_start_time = time.time()
         
         # Performing single train epoch and get train metrics
         avg_train_loss, train_accuracy = train_epoch(model, train_loader, optimizer)
 
-        # Perform single validation epoch and get validation metrics
-        avg_val_auc = val_epoch(model, val_loader, val_data)
-
         train_metrics["Average BCE loss per train epoch"].append(avg_train_loss, 2)
         train_metrics["Average accuracy per train epoch"].append(train_accuracy, 2)
-        train_metrics['Average val auc per train epoch'].append(avg_train_loss, 2)
 
-        print(f"Epoch [{epoch+1}/{total_epochs}], Train BCE loss: {avg_train_loss:.4f}, Train accuracy: {train_accuracy:.2f}, Validaton mean auc: {avg_val_auc}")
+        if use_val:
+            # Perform single validation epoch and get validation metrics
+            avg_val_auc = val_epoch(model, val_loader, val_data)
+
+            epoch_time = (time.time() - epoch_start_time).strftime("%H:%M:%S")
+            print(f"Epoch [{epoch+1}/{total_epochs}] (time: {epoch_time}), Train BCE loss: {avg_train_loss:.4f}, Train accuracy: {train_accuracy:.2f}, Validaton mean auc: {avg_val_auc}")
+
+            train_metrics['Average val auc per train epoch'].append(avg_train_loss, 2)
+        else:
+            epoch_time = (time.time() - epoch_start_time).strftime("%H:%M:%S")
+            print(f"Epoch [{epoch+1}/{total_epochs}] (time: {epoch_time}), Train BCE loss: {avg_train_loss:.4f}, Train accuracy: {train_accuracy:.2f}")
 
         # Linearly increase momentum to end momentum
         increase_momentum_linear(optimizer, start_momentum, momentum_delta, epoch)
@@ -255,6 +269,9 @@ if __name__ == '__main__':
         if checkpoint_freq != -1:
             if epoch % checkpoint_freq == 0:
                 save_checkpoint(model, optimizer, epoch, checkpoint_dir)
+
+    # Get runtime
+    runtime = (time.time() - train_start_time).strftime("%H:%M:%S")
 
     # Output directory
     date = datetime.now()
@@ -275,5 +292,6 @@ if __name__ == '__main__':
         'end_momentum' : end_momentum,
         'momentum_delta' : momentum_delta,
         'weight_decay' : weight_decay,
+        'Time to train' : runtime,
     }
     save_log(out_dir, date, **{**train_metrics, **hyperparameters})
