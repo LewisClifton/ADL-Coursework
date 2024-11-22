@@ -22,7 +22,7 @@ class _MrCNNStream(nn.Module):
         self.conv3 = nn.Conv2d(in_channels=160, out_channels=288, kernel_size=3, stride=1, padding=0)
 
         # "Dropout was used with the corruption probability of 0.5 in the third C layer"
-        self.dropout1 = nn.Dropout2d(p=0.5)
+        self.dropout1 = nn.Dropout(p=0.5)
 
         # "Use 2×2 pooling windows in all P layers"
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
@@ -31,7 +31,7 @@ class _MrCNNStream(nn.Module):
         self.fc = nn.Linear(in_features=(288 * 3 * 3), out_features=512)
 
         # "Dropout was used with the corruption probability of 0.5 in ... and the subsequent two FC layers
-        self.dropout2 = nn.Dropout2d(p=0.5)
+        self.dropout2 = nn.Dropout(p=0.5)
 
         # "Rectified Linear Unit (ReLU) in all C layers and FC layer"
         self.relu = nn.ReLU()
