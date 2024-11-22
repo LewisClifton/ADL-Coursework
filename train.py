@@ -181,8 +181,8 @@ if __name__ == '__main__':
     parser.add_argument('--checkpoint_freq', type=int, help="How many epochs between saving checkpoint. -1: don't save checkpoints", default=-1)
     args = parser.parse_args()
     
-    data_dir = parser.data_dir
-    out_dir = parser.out_dir
+    data_dir = args.data_dir
+    out_dir = args.out_dir
     total_epochs = args.epochs
     start_epoch = 0
     batch_size = args.batch_size
