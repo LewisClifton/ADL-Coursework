@@ -128,7 +128,7 @@ def evaluate(model, test_loader, test_data, GT_fixations_dir, out_dir, device, n
                 GT_image_resized = np.array(GT_image_resized)
 
                 # Concatenate images horizontally [original image, predicted saliency map, ground truth saliency map]
-                concatenated_image = Image.fromarray( np.concatenate([GT_image_resized, pred_fixMap, GT_fixMap], axis=1) )
+                concatenated_image = Image.fromarray( np.concatenate([GT_image_resized, pred_fixMap, GT_fixMap], axis=1) ).convert('RGB')
                 
                 # Directory to save images to
                 image_dir = os.path.join(out_dir, "Comparison images")
