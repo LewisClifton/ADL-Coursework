@@ -134,9 +134,9 @@ def evaluate(model, test_loader, test_data, GT_fixations_dir, image_dir, device,
             
                 # Save the concatenated image
                 concatenated_image.save(os.path.join(image_dir, f"{image_name}_comparison.jpg"))
-                sys.exit(0)
-    
-
+            
+            if dist.is_initialized():
+                dist.destroy_process_group()
 
         # Calculate validation auc metric
         avg_auc = calculate_auc(preds, targets)
@@ -183,13 +183,13 @@ def main(rank,
         os.makedirs(image_dir, exist_ok=True)
 
     # For gettin runtime
-    train_start_time = time.time()
+    eval_start_time = time.time()
 
     # Evaluate over the test set
     test_avg_auc = evaluate(model, test_loader, test_data, GT_fixations_dir, image_dir, num_saved_images=num_saved_images, device=rank)
 
     # Get runtime
-    runtime = time.time() - train_start_time
+    runtime = time.time() - eval_start_time
 
     # Wait for all the GPUs to finish training
     dist.barrier()
