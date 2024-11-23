@@ -243,8 +243,8 @@ def train(rank, world_size):
         # Performing single train epoch and get train metrics
         avg_train_loss, train_accuracy = train_epoch(model, train_loader, optimizer, criterion)
 
-        train_metrics["Average BCE loss per train epoch"].append(avg_train_loss, 2)
-        train_metrics["Average accuracy per train epoch"].append(train_accuracy, 2)
+        train_metrics["Average BCE loss per train epoch"].append(round(avg_train_loss, 2))
+        train_metrics["Average accuracy per train epoch"].append(round(train_accuracy, 2))
 
         if use_val:
             # Perform single validation epoch and get validation metrics
@@ -253,7 +253,7 @@ def train(rank, world_size):
             epoch_time = (time.time() - epoch_start_time).strftime("%H:%M:%S")
             print(f"Epoch [{epoch+1}/{total_epochs}] (time: {epoch_time}), Train BCE loss: {avg_train_loss:.4f}, Train accuracy: {train_accuracy:.2f}, Validaton mean auc: {avg_val_auc}")
 
-            train_metrics['Average val auc per train epoch'].append(avg_train_loss, 2)
+            train_metrics['Average val auc per train epoch'].append(round(avg_train_loss, 2))
         else:
             epoch_time = (time.time() - epoch_start_time).strftime("%H:%M:%S")
             print(f"Epoch [{epoch+1}/{total_epochs}] (time: {epoch_time}), Train BCE loss: {avg_train_loss:.4f}, Train accuracy: {train_accuracy:.2f}")
