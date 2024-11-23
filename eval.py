@@ -126,17 +126,18 @@ def evaluate(model, test_loader, test_data, GT_fixations_dir, image_dir, device,
                 GT_fixMap_rgb = np.stack((GT_fixMap,) * 3, axis=-1)
 
                 # Transpose the RGB image to match the shape (height, width, channels)
-                GT_image_transposed = np.transpose(GT_image, (1, 2, 0)) 
+                # GT_image_transposed = np.transpose(GT_image, (1, 2, 0)) 
+
+                print(GT_image.shape)
+                print(pred_fixMap_rgb)
+                print(GT_fixMap_rgb)
 
                 # Concatenate all three images along the width (axis 1) and convert to PIL image
-                concatenated_image = np.concatenate((pred_fixMap_rgb, GT_fixMap_rgb, GT_image_transposed), axis=1)
+                concatenated_image = np.concatenate((GT_image, pred_fixMap_rgb, GT_fixMap_rgb), axis=1)
                 concatenated_image = Image.fromarray( (concatenated_image * 255).astype(np.uint8) ) 
             
                 # Save the concatenated image
                 concatenated_image.save(os.path.join(image_dir, f"{image_name}_comparison.jpg"))
-            
-            if dist.is_initialized():
-                dist.destroy_process_group()
 
         # Calculate validation auc metric
         avg_auc = calculate_auc(preds, targets)
@@ -191,7 +192,7 @@ def main(rank,
     # Get runtime
     runtime = time.time() - eval_start_time
 
-    # Wait for all the GPUs to finish training
+    # Wait for all the GPUs to finish evaluating
     dist.barrier()
 
     # Send all the gpu node metrics back to the main gpu
