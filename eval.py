@@ -86,11 +86,11 @@ def evaluate(model, test_loader, test_data, GT_fixations_dir, image_dir, device,
                 map_pixel_index = pixel_index % test_data.num_crops
                 
                 # Get index of fixation value
-                row = map_pixel_index % 50
-                col = map_pixel_index // 50
+                row = map_pixel_index // 50
+                col = map_pixel_index % 50
 
                 # Write the fixation value to the necessary fixation map
-                saliency_maps[map_index, row, col] = fixations[i].item()
+                saliency_maps[map_index, col, row] = fixations[i].item()
 
                 pixel_index += 1                
 
@@ -127,7 +127,7 @@ def evaluate(model, test_loader, test_data, GT_fixations_dir, image_dir, device,
                 GT_fixMap_rgb = np.stack((GT_fixMap,) * 3, axis=-1)
 
                 # Concatenate all three images along the width (axis 1) and convert to PIL image
-                concatenated_image = np.concatenate((GT_image, pred_fixMap_rgb, GT_fixMap_rgb), axis=0)
+                concatenated_image = np.concatenate((GT_image, pred_fixMap_rgb, GT_fixMap_rgb), axis=1)
                 concatenated_image = Image.fromarray( (concatenated_image * 255).astype(np.uint8) ) 
             
                 # Save the concatenated image
