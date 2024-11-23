@@ -67,9 +67,7 @@ def evaluate(model, test_loader, test_data, GT_fixations_dir, image_dir, device,
 
         pixel_index = 0
 
-        for idx in range(len(test_data)):
-
-            inputs = test_data[idx]
+        for _, (inputs, _) in enumerate(test_loader):
             
             # Get the different resolutions for each crop in the batch
             x1 = inputs[:, 0, :, :, :].to(device) # 400x400
@@ -88,8 +86,8 @@ def evaluate(model, test_loader, test_data, GT_fixations_dir, image_dir, device,
                 map_pixel_index = pixel_index % test_data.num_crops
                 
                 # Get index of fixation value
-                row = map_pixel_index // 50
-                col = map_pixel_index % 50
+                row = map_pixel_index % 50
+                col = map_pixel_index // 50
 
                 # Write the fixation value to the necessary fixation map
                 saliency_maps[map_index, row, col] = fixations[i].item()
@@ -234,7 +232,7 @@ if __name__ == '__main__':
     parser.add_argument('--out_dir', type=str, help="Path to directory for saving model/log/images", required=True)
     parser.add_argument('--model_path', type=str, help="Path of model to evaluate")
     parser.add_argument('--batch_size', type=int, help="Data loader batch size", default=256)
-    parser.add_argument('--num_gpus', type=int, help="Number of gpus to train with", default=2)
+    parser.add_argument('--num_gpus', type=int, help="Number of gpus to train with", default=1)
     parser.add_argument('--num_saved_images', type=int, help="Number of comparison images to save", default=0)
     args = parser.parse_args()
     
