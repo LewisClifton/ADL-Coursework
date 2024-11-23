@@ -289,7 +289,7 @@ def train(rank,
                     save_checkpoint(model, optimizer, epoch, checkpoint_dir)
 
     # Get runtime
-    train_metrics['Test runtime'] = time.time() - train_start_time
+    train_metrics['Train runtime'] = time.time() - train_start_time
 
     dist.barrier()
 
@@ -302,7 +302,7 @@ def train(rank,
         print('Done training')
 
         # Get runtime
-        runtime = np.max([gpu_metrics['Train runtime'] for gpu_metrics in train_metrics])
+        runtime = np.max([gpu_metrics['Train runtime'] for gpu_metrics in train_metrics_gpus])
         runtime = time.strftime("%H:%M:%S", time.gmtime(runtime))
 
         # Split the metrics from train_metrics_gpus
