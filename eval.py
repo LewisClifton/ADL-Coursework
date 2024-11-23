@@ -119,16 +119,14 @@ def evaluate(model, test_loader, test_data, GT_fixations_dir, image_dir, device,
             targets[image_name] = GT_fixMap
 
             if map_idx < num_saved_images and device == 0:
-                # Get ground truth image
-                GT_image = test_data.dataset[map_idx]["X"].cpu().numpy().transpose(1, 2, 0)[..., ::-1]
 
                 # Make the fixation maps 3 channel
-                pred_fixMap_rgb = np.stack((pred_fixMap,) * 3, axis=-1)
+                pred_fixMap_rgb = np.stack((pred_fixMap,) * 3, axis=-1) * 255
                 GT_fixMap_rgb = np.stack((GT_fixMap,) * 3, axis=-1)
 
                 # Concatenate all three images along the width (axis 1) and convert to PIL image
-                concatenated_image = np.concatenate((GT_image, pred_fixMap_rgb, GT_fixMap_rgb), axis=1)
-                concatenated_image = Image.fromarray( (concatenated_image * 255).astype(np.uint8) ) 
+                concatenated_image = np.concatenate((pred_fixMap_rgb, GT_fixMap_rgb), axis=1)
+                concatenated_image = Image.fromarray( (concatenated_image).astype(np.uint8) ) 
             
                 # Save the concatenated image
                 concatenated_image.save(os.path.join(image_dir, f"{image_name}_comparison.jpg"))
