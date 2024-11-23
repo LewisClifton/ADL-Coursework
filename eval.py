@@ -178,8 +178,9 @@ def main(rank,
     test_avg_auc = evaluate(model, test_loader, test_data, GT_fixations_dir, out_dir, num_saved_images=num_saved_images, device=rank)
 
     # Get runtime
-    runtime = time.strftime("%H:%M:%S", time.gmtime((time.time() - train_start_time)))
+    runtime = time.time() - train_start_time
 
+    # Wait for all the GPUs to finish training
     dist.barrier()
 
     # Send all the gpu node metrics back to the main gpu
@@ -193,11 +194,13 @@ def main(rank,
 
     if rank == 0:
 
+        # Calculate average AUC over all the GPUs
         test_avg_aucs = [gpu_metrics['Average test AUC'] for gpu_metrics in test_metrics_gpus]
-        runtimes = [gpu_metrics['Test runtime'] for gpu_metrics in test_metrics_gpus]
-
         test_avg_auc = np.mean(np.vstack(test_avg_aucs), axis=0)
-        runtime = np.mean(np.vstack(runtimes), axis=0)
+
+        # Get runtime
+        runtime = np.max([gpu_metrics['Test runtime'] for gpu_metrics in test_metrics_gpus])
+        runtime = time.strftime("%H:%M:%S", time.gmtime(runtime))
 
         final_test_metrics = {
             'Model path' : model_path,

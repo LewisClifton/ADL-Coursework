@@ -291,7 +291,7 @@ def train(rank,
                     save_checkpoint(model, optimizer, epoch, checkpoint_dir)
 
     # Get runtime
-    runtime = time.strftime("%H:%M:%S", time.gmtime((time.time() - train_start_time)))
+    train_metrics['Test runtime'] = time.time() - train_start_time
 
     dist.barrier()
 
@@ -302,6 +302,10 @@ def train(rank,
 
     if rank == 0:
         print('Done training')
+
+        # Get runtime
+        runtime = np.max([gpu_metrics['Train runtime'] for gpu_metrics in train_metrics])
+        runtime = time.strftime("%H:%M:%S", time.gmtime(runtime))
 
         # Split the metrics from train_metrics_gpus
         bce_losses = [gpu_metrics["Average BCE loss per train epoch"] for gpu_metrics in train_metrics_gpus]
@@ -315,6 +319,7 @@ def train(rank,
 
         # Final train metric for the log
         final_train_metrics = {
+            "Train runtime" : runtime,
             "Average BCE loss per train epoch": bce_losses.tolist(),
             "Average accuracy per train epoch": avg_accs.tolist(),
             "Average val auc per train epoch": avg_val_aucs.tolist(),
