@@ -23,7 +23,6 @@ from utils import *
 
 
 # Set up cuda
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.backends.cudnn.enabled = True
 
 # Setup for multi-gpu loading
@@ -75,7 +74,7 @@ def apply_conv_weight_constraint(model, weight_constraint=0.1):
 def increase_momentum_linear(optimizer, start_momentum, momentum_delta, epoch):
     optimizer.param_groups[0]['momentum'] = start_momentum + epoch * momentum_delta
 
-def train_epoch(model, train_loader, optimizer, criterion):
+def train_epoch(model, train_loader, optimizer, criterion, device):
     # Set the model to training mode
     model.train()  
 
@@ -125,7 +124,7 @@ def train_epoch(model, train_loader, optimizer, criterion):
     return avg_loss, accuracy
 
 
-def val_epoch(model, val_loader, val_data, GT_fixations_dir):
+def val_epoch(model, val_loader, val_data, GT_fixations_dir, device):
     # Set the model to evaluation mode
     model.eval()  
 
@@ -241,14 +240,14 @@ def train(rank, world_size):
         epoch_start_time = time.time()
         
         # Performing single train epoch and get train metrics
-        avg_train_loss, train_accuracy = train_epoch(model, train_loader, optimizer, criterion)
+        avg_train_loss, train_accuracy = train_epoch(model, train_loader, optimizer, criterion, device=rank)
 
         train_metrics["Average BCE loss per train epoch"].append(round(avg_train_loss, 2))
         train_metrics["Average accuracy per train epoch"].append(round(train_accuracy, 2))
 
         if use_val:
             # Perform single validation epoch and get validation metrics
-            avg_val_auc = val_epoch(model, val_loader, val_data, GT_fixations_dir)
+            avg_val_auc = val_epoch(model, val_loader, val_data, GT_fixations_dir, device=rank)
 
             epoch_time = (time.time() - epoch_start_time).strftime("%H:%M:%S")
             print(f"Epoch [{epoch+1}/{total_epochs}] (time: {epoch_time}), Train BCE loss: {avg_train_loss:.4f}, Train accuracy: {train_accuracy:.2f}, Validaton mean auc: {avg_val_auc}")
@@ -322,7 +321,7 @@ def train(rank, world_size):
 
 if __name__ == '__main__':
 
-    import torch
+    print(f'devices: {torch.cuda.device_count()}')
     for i in range(torch.cuda.device_count()):
         print(torch.cuda.get_device_properties(i).name)
     quit()
