@@ -129,8 +129,8 @@ def evaluate(model, test_loader, test_data, GT_fixations_dir, image_dir, device,
                 # GT_image_transposed = np.transpose(GT_image, (1, 2, 0)) 
 
                 print(GT_image.shape)
-                print(pred_fixMap_rgb)
-                print(GT_fixMap_rgb)
+                print(pred_fixMap_rgb.shape)
+                print(GT_fixMap_rgb.shape)
 
                 # Concatenate all three images along the width (axis 1) and convert to PIL image
                 concatenated_image = np.concatenate((GT_image, pred_fixMap_rgb, GT_fixMap_rgb), axis=1)
