@@ -219,6 +219,9 @@ def main(rank,
         # Save metrics
         save_log(out_dir, date, **{**final_test_metrics})
 
+        if num_saved_images > 0:
+            print(f'Saved {num_saved_images} to {image_dir}.')
+
     if dist.is_initialized():
         dist.destroy_process_group()
 
