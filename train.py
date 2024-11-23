@@ -265,12 +265,12 @@ def train(rank,
             # Perform single validation epoch and get validation metrics
             avg_val_auc = val_epoch(model, val_loader, val_data, GT_fixations_dir, device=rank)
 
-            epoch_time = (time.time() - epoch_start_time).strftime("%H:%M:%S")
+            epoch_time = time.strftime("%H:%M:%S", time.gmtime((time.time() - epoch_start_time)))
             print(f"Epoch [{epoch+1}/{total_epochs}] (time: {epoch_time}), Train BCE loss: {avg_train_loss:.4f}, Train accuracy: {train_accuracy:.2f}, Validaton mean auc: {avg_val_auc}")
 
             train_metrics['Average val auc per train epoch'].append(round(avg_train_loss, 2))
         else:
-            epoch_time = (time.time() - epoch_start_time).strftime("%H:%M:%S")
+            epoch_time = time.strftime("%H:%M:%S", time.gmtime((time.time() - epoch_start_time)))
             print(f"Epoch [{epoch+1}/{total_epochs}] (time: {epoch_time}), Train BCE loss: {avg_train_loss:.4f}, Train accuracy: {train_accuracy:.2f}")
 
         # Linearly increase momentum to end momentum
@@ -285,7 +285,7 @@ def train(rank,
                 save_checkpoint(model, optimizer, epoch, checkpoint_dir)
 
     # Get runtime
-    runtime = (time.time() - train_start_time).strftime("%H:%M:%S")
+    runtime = time.strftime("%H:%M:%S", time.gmtime((time.time() - train_start_time)))
 
     # Send all the gpu node metrics back to the main gpu
     torch.cuda.set_device(rank)
