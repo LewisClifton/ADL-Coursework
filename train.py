@@ -321,7 +321,8 @@ def train(rank, world_size):
 
 if __name__ == '__main__':
 
-    print(f'devices: {torch.cuda.is_available()}')
+    print(f'devices: {torch.zeros(1).cuda(0)}')
+    print(f'devices: {torch.zeros(1).cuda(1)}')
     for i in range(torch.cuda.device_count()):
         print(torch.cuda.get_device_properties(i).name)
     quit()
