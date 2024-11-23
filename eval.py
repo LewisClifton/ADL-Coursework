@@ -67,7 +67,9 @@ def evaluate(model, test_loader, test_data, GT_fixations_dir, image_dir, device,
 
         pixel_index = 0
 
-        for _, (inputs, _) in enumerate(test_loader):
+        for idx in range(len(test_data)):
+
+            inputs = test_data[idx]
             
             # Get the different resolutions for each crop in the batch
             x1 = inputs[:, 0, :, :, :].to(device) # 400x400
