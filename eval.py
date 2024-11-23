@@ -118,7 +118,7 @@ def evaluate(model, test_loader, test_data, GT_fixations_dir, out_dir, device, n
             preds[image_name] = pred_fixMap
             targets[image_name] = GT_fixMap
 
-            if map_idx < num_saved_images:
+            if map_idx < num_saved_images and device == 0:
                 # Get ground truth image
                 GT_image = test_data.dataset[map_idx]["X"].cpu().numpy()[0]
                 GT_image = np.moveaxis(GT_image, 0, -1)
