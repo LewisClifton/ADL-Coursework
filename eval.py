@@ -105,7 +105,7 @@ def evaluate(model, test_loader, test_data, GT_fixations_dir, image_dir, device,
             saliency_map = Image.fromarray(saliency_maps[map_idx].T)
 
             # Resize the image
-            pred_fixMap = np.array( saliency_map.tell.resize((W, H), resample=Image.BICUBIC) )
+            pred_fixMap = np.array( saliency_map.resize((W, H), resample=Image.BICUBIC) )
 
             # Obtain the ground truth fixation map
             GT_fixMap = Image.open(os.path.join(GT_fixations_dir, f"{image_name}_fixMap.jpg"))
