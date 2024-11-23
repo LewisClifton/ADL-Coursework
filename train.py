@@ -26,15 +26,15 @@ from utils import *
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.backends.cudnn.enabled = True
 
-
-def setup(rank, world_size):
+# Setup for multi-gpu loading
+def setup_gpus(rank, world_size):
     os.environ['MASTER_ADDR'] = 'localhost'
     os.environ['MASTER_PORT'] = '12355'
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
 
-def prepare(dataset, rank, world_size, batch_size=32):
+# Get the dataloaders
+def get_data_loader(dataset, rank, world_size, batch_size=32):
     sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=False, drop_last=False)
-    
     dataloader = DataLoader(dataset, batch_size=batch_size, pin_memory=False, num_workers=0, drop_last=False, shuffle=False, sampler=sampler)
     
     return dataloader
@@ -58,7 +58,6 @@ def load_checkpoint(model, optimizer, checkpoint_path):
 
     return model, optimizer, start_epoch
 
-
 # Save model checkpoint
 def save_checkpoint(model, optimizer, epoch, checkpoint_dir):
     torch.save({'model_state_dict': model.state_dict(),
@@ -68,7 +67,7 @@ def save_checkpoint(model, optimizer, epoch, checkpoint_dir):
 
 def apply_conv_weight_constraint(model, weight_constraint=0.1):
     with torch.no_grad():
-        for conv in [model.stream1.conv1, model.stream2.conv1, model.stream3.conv1]:
+        for conv in [model.module.stream1.conv1, model.module.stream2.conv1, model.module.stream3.conv1]:
             norm = torch.linalg.norm(conv.weight, ord=2, dim=(2,3), keepdim=True)
             norm_condition = (norm > weight_constraint).expand_as(conv.weight.data)
             conv.weight.data[norm_condition] /= (norm + 1e-8).expand_as(conv.weight.data)[norm_condition]
@@ -193,7 +192,7 @@ def val_epoch(model, val_loader, val_data, GT_fixations_dir):
 def train(rank, world_size):
 
     # setup the process groups
-    setup(rank, world_size)
+    setup_gpus(rank, world_size)
 
     # Get train and validation data
     train_data = MIT(dataset_path=os.path.join(data_dir, "train_data.pth.tar"))
@@ -204,8 +203,8 @@ def train(rank, world_size):
     GT_fixations_dir = os.path.join(data_dir, "ALLFIXATIONMAPS")
 
     # Create data loaders
-    train_loader = prepare(train_data, rank, world_size, batch_size=batch_size)
-    val_loader = prepare(val_data, rank, world_size, batch_size=batch_size)
+    train_loader = get_data_loader(train_data, rank, world_size, batch_size=batch_size)
+    val_loader = get_data_loader(val_data, rank, world_size, batch_size=batch_size)
 
     # Create the model
     model = MrCNN().to(rank)
@@ -236,6 +235,8 @@ def train(rank, world_size):
 
     # Training Loop
     for epoch in range(start_epoch, total_epochs):
+        train_loader.sampler.set_epoch(epoch)
+        val_loader.sampler.set_epoch(epoch) 
 
         epoch_start_time = time.time()
         
@@ -364,5 +365,8 @@ if __name__ == '__main__':
     world_size = args.num_gpus 
     mp.spawn(
         train,
-        args=(world_size),
+        args=(world_size,),
         nprocs=world_size)
+    
+    # Destroy processes
+    dist.destroy_process_group()
