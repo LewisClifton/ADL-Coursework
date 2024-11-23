@@ -1,39 +1,60 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
 
-# The following model is a recreation of the MrCNN (Multi-resolution Convolutional Neural Network) described
-# by Liu, N., Han, J., Zhang, D., Wen, S., & Liu, T. (2015). Predicting eye fixations using convolutional neural networks. 
-# In Proceedings of the IEEE conference on computer vision and pattern recognition (pp. 362-370). Found here:
-# https://openaccess.thecvf.com/content_cvpr_2015/papers/Liu_Predicting_Eye_Fixations_2015_CVPR_paper.pdf
+class GaussianPriorMap(nn.Module):
+    def __init__(self, N=16):
+        super(GaussianPriorMap, self).__init__()
 
+        self.N = N
 
-# The model structure is justified in the comments which quote the reference paper's description of the original Mr-CNN
+        self.mean_x = nn.Parameter(torch.randn(N))
+        self.mean_y = nn.Parameter(torch.randn(N))
+        self.std_x = nn.Parameter(torch.randn(N)) 
+        self.std_y = nn.Parameter(torch.randn(N))
+    
+    @staticmethod
+    def gaussian_f(x, y, mean_x, mean_y, std_x, std_y):
+        return (1 / (2 * np.pi * std_x * std_y)) * torch.exp(-((x - mean_x) ** 2 / (2 * std_x ** 2) + (y - mean_y) ** 2 / (2 * std_y ** 2)))
 
-class _MrCNNStream(nn.Module):
+    def forward(self, map_width, map_height):
+
+        grid_x, grid_y = torch.meshgrid(torch.arange(0, map_width), torch.arange(0, map_height))
+        grid_x = grid_x.float()
+        grid_y = grid_y.float()
+
+        for i in range(self.N):
+            gaussian_map = GaussianPriorMap.gaussian_f(grid_x, grid_y, self.mu_x[i], self.mu_y[i], self.sigma_x[i], self.sigma_y[i])
+            gaussian_maps.append(gaussian_map)
+
+        gaussian_maps = [GaussianPriorMap.gaussian_f(grid_x, grid_y, self.mu_x[i], self.mu_y[i], self.sigma_x[i], self.sigma_y[i]) for _ in range(self.N)]
+
+        gaussian_maps = torch.stack(gaussian_maps, dim=0).unsqueeze(0)
+
+        return gaussian_map
+
+class MrCNNStream(nn.Module):
     def __init__(self):
-        super(_MrCNNStream, self).__init__()
+        super(MrCNNStream, self).__init__()
         
-        # "96 filters with size 7×7 in the first C layer"
-        # "160 and 288 filters with size 3×3 respectively in the second and the third C layer"
-        # "Stride to 1 and perform valid convolution operations, disregarding the map borders" (implies padding=0)
+    
         self.conv1 = nn.Conv2d(in_channels=3, out_channels=96, kernel_size=7, stride=1, padding=0)
         self.conv2 = nn.Conv2d(in_channels=96, out_channels=160, kernel_size=3, stride=1, padding=0)
         self.conv3 = nn.Conv2d(in_channels=160, out_channels=288, kernel_size=3, stride=1, padding=0)
 
-        # "Dropout was used with the corruption probability of 0.5 in the third C layer"
         self.dropout1 = nn.Dropout(p=0.5)
 
-        # "Use 2×2 pooling windows in all P layers"
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
 
-        # "512 neurons in all FC layers"
-        self.fc = nn.Linear(in_features=(288 * 3 * 3), out_features=512)
+        self.gaussian_priors = GaussianPriorMap(N=10)
 
-        # "Dropout was used with the corruption probability of 0.5 in ... and the subsequent two FC layers
+        self.conv4 = nn.Conv2d(in_channels=(288 * 3 * 3 + 10), out_channels=2560, kernel_size=3, stride=1, padding=0)
+
+        self.fc = nn.Linear(in_features=2560, out_features=512)
+
         self.dropout2 = nn.Dropout(p=0.5)
 
-        # "Rectified Linear Unit (ReLU) in all C layers and FC layer"
         self.relu = nn.ReLU()
 
     def forward(self, x):
@@ -52,6 +73,11 @@ class _MrCNNStream(nn.Module):
         x = self.relu(x)
         x = self.dropout1(x)
         x = self.pool(x)
+
+        # Gaussian maps
+        gaussian_maps = self.gaussian_priors(x.shape[3], x.shape[4])
+
+        x = torch.cat([x, gaussian_maps], dim=1)
         
         # FC layer at end of stream
         x = torch.flatten(x, start_dim=1)
@@ -62,24 +88,18 @@ class _MrCNNStream(nn.Module):
         # Return stream output
         return out
 
-class MrCNN(nn.Module):
+class ImprovedMrCNN(nn.Module):
     def __init__(self):
-        super(MrCNN, self).__init__()
+        super(ImprovedMrCNN, self).__init__()
 
-        # "Mr-CNN starts from three streams in lower layer"
-        self.stream1 = _MrCNNStream()
-        self.stream2 = _MrCNNStream()
-        self.stream3 = _MrCNNStream()
-        
-        # "The three streams are fused using another FC layer"
-        # "512 neurons in all FC layers"
+        self.stream1 = MrCNNStream()
+        self.stream2 = MrCNNStream()
+        self.stream3 = MrCNNStream()
+
         self.fc = nn.Linear(in_features=(512 * 3), out_features=512)
 
-        # "Dropout was used with the corruption probability of 0.5 in ... and the subsequent two FC layers
         self.dropout = nn.Dropout(p=0.5)
 
-        # "Followed by one logistic regression layer at the end to perform classification"
-        # "512 neurons in all FC layers"
         self.output = nn.Linear(in_features=512, out_features=1)
         self.sigmoid = nn.Sigmoid()
 

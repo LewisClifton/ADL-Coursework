@@ -19,6 +19,7 @@ from dataset import MIT
 from model import MrCNN
 from metrics import calculate_auc
 from utils import *
+from improvements import ImprovedMrCNN
 
 
 # Set up cuda
@@ -202,7 +203,8 @@ def train(rank,
           momentum_delta,
           weight_decay,
           checkpoint_dir,
-          checkpoint_freq):
+          checkpoint_freq,
+          use_improvements):
 
     # setup the process groups
     setup_gpus(rank, world_size)
@@ -221,7 +223,10 @@ def train(rank,
     val_loader = get_data_loader(val_data, rank, world_size, batch_size=batch_size)
 
     # Create the model
-    model = MrCNN().to(rank)
+    if use_improvements:
+        model = MrCNN().to(rank)
+    else:
+        model = ImprovedMrCNN().to(rank)
     
     # Wrap model with DDP
     model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=False)
@@ -368,6 +373,7 @@ if __name__ == '__main__':
     parser.add_argument('--conv_weight_decay', type=float, help="Weight decay threshold of the first convolutional layer", default=2e-4)
     parser.add_argument('--checkpoint_path', type=str, help="Relative path of saved checkpoint from --out_dir")
     parser.add_argument('--checkpoint_freq', type=int, help="How many epochs between saving checkpoint. -1: don't save checkpoints", default=-1)
+    parser.add_argument('--use_improvements', type=bool, help="Whether to use the model improvements", default=False)
     args = parser.parse_args()
     
     data_dir = args.data_dir
@@ -388,6 +394,8 @@ if __name__ == '__main__':
     checkpoint_dir = args.checkpoint_path
     checkpoint_freq = args.checkpoint_freq # every checkpoint_freq epochs, save model checkpoint
 
+    use_improvements = args.use_improvements
+
     # Initialise gpus
     world_size = args.num_gpus 
     mp.spawn(
@@ -405,7 +413,8 @@ if __name__ == '__main__':
               momentum_delta,
               weight_decay,
               checkpoint_dir,
-              checkpoint_freq),
+              checkpoint_freq,
+              use_improvements),
         nprocs=world_size)
     
     
