@@ -280,12 +280,15 @@ def train(rank,
         apply_conv_weight_constraint(model)
 
         # Save checkpoint
-        if checkpoint_freq != -1:
-            if epoch % checkpoint_freq == 0:
-                save_checkpoint(model, optimizer, epoch, checkpoint_dir)
+        if rank == 0:
+            if checkpoint_freq != -1:
+                if epoch % checkpoint_freq == 0:
+                    save_checkpoint(model, optimizer, epoch, checkpoint_dir)
 
     # Get runtime
     runtime = time.strftime("%H:%M:%S", time.gmtime((time.time() - train_start_time)))
+
+    dist.barrier()
 
     # Send all the gpu node metrics back to the main gpu
     torch.cuda.set_device(rank)
@@ -333,6 +336,9 @@ def train(rank,
             'Time to train' : runtime,
         }
         save_log(out_dir, date, **{**final_train_metrics, **hyperparameters})
+
+    if dist.is_initialized():
+        dist.destroy_process_group()
 
 
 if __name__ == '__main__':
@@ -391,5 +397,4 @@ if __name__ == '__main__':
               checkpoint_freq),
         nprocs=world_size)
     
-    # Destroy processes
-    dist.destroy_process_group()
+    

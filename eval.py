@@ -124,7 +124,7 @@ def evaluate(model, test_loader, test_data, GT_fixations_dir, device):
         return avg_auc
     
 
-def train(rank, 
+def main(rank, 
           world_size,
           data_dir,
           out_dir,
@@ -160,6 +160,8 @@ def train(rank,
     # Get runtime
     runtime = time.strftime("%H:%M:%S", time.gmtime((time.time() - train_start_time)))
 
+    dist.barrier()
+
     # Send all the gpu node metrics back to the main gpu
     test_metrics = {
         'Average test AUC' : test_avg_auc,
@@ -190,6 +192,9 @@ def train(rank,
         # Save metrics
         save_log(out_dir, date, **{**final_test_metrics})
 
+    if dist.is_initialized():
+        dist.destroy_process_group()
+
 
 if __name__ == '__main__':
 
@@ -210,7 +215,7 @@ if __name__ == '__main__':
     # Initialise gpus
     world_size = args.num_gpus 
     mp.spawn(
-        evaluate,
+        main,
         args=(world_size,
               data_dir,
               out_dir,
@@ -218,5 +223,4 @@ if __name__ == '__main__':
               batch_size),
         nprocs=world_size)
     
-    # Destroy processes
-    dist.destroy_process_group()
+    
