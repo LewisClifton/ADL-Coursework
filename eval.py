@@ -132,7 +132,8 @@ def evaluate(model, test_loader, test_data, GT_fixations_dir, out_dir, device, n
                 
                 # Directory to save images to
                 image_dir = os.path.join(out_dir, "Comparison images")
-                os.makedirs(image_dir, exist_ok=True)
+                if not os.path.exists(image_dir):
+                    os.makedirs(image_dir, exist_ok=True)
 
                 # Save the concatenated image
                 concatenated_image.save(os.path.join(image_dir, f"{image_name}_comparison.jpg"))
