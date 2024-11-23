@@ -235,10 +235,12 @@ def train(rank,
 
     # Load from checkpoints if required
     if checkpoint_dir:
-        print("Loading from checkpoint")
+        if rank == 0:
+            print("Loading from checkpoint")
         model, optimizer, start_epoch = load_checkpoint(model, optimizer, checkpoint_dir)
 
-    print(f'Starting training (Epoch {start_epoch+1}/{total_epochs})')
+    if rank == 0:
+        print(f'Starting training (Epoch {start_epoch+1}/{total_epochs})')
 
     train_metrics = {
         "Average BCE loss per train epoch" : [],
@@ -266,12 +268,14 @@ def train(rank,
             avg_val_auc = val_epoch(model, val_loader, val_data, GT_fixations_dir, device=rank)
 
             epoch_time = time.strftime("%H:%M:%S", time.gmtime((time.time() - epoch_start_time)))
-            print(f"Epoch [{epoch+1}/{total_epochs}] (time: {epoch_time}), Train BCE loss: {avg_train_loss:.4f}, Train accuracy: {train_accuracy:.2f}, Validaton mean auc: {avg_val_auc}")
+            if rank == 0:
+                print(f"Epoch [{epoch+1}/{total_epochs}] (time: {epoch_time}), Train BCE loss: {avg_train_loss:.4f}, Train accuracy: {train_accuracy:.2f}, Validaton mean auc: {avg_val_auc}")
 
             train_metrics['Average val auc per train epoch'].append(round(avg_train_loss, 2))
         else:
             epoch_time = time.strftime("%H:%M:%S", time.gmtime((time.time() - epoch_start_time)))
-            print(f"Epoch [{epoch+1}/{total_epochs}] (time: {epoch_time}), Train BCE loss: {avg_train_loss:.4f}, Train accuracy: {train_accuracy:.2f}")
+            if rank == 0:
+                print(f"Epoch [{epoch+1}/{total_epochs}] (time: {epoch_time}), Train BCE loss: {avg_train_loss:.4f}, Train accuracy: {train_accuracy:.2f}")
 
         # Linearly increase momentum to end momentum
         increase_momentum_linear(optimizer, start_momentum, momentum_delta, epoch)
@@ -296,6 +300,7 @@ def train(rank,
     dist.all_gather_object(train_metrics_gpus, train_metrics)
 
     if rank == 0:
+        print('Done training')
 
         # Split the metrics from train_metrics_gpus
         bce_losses = [gpu_metrics["Average BCE loss per train epoch"] for gpu_metrics in train_metrics_gpus]
@@ -321,7 +326,9 @@ def train(rank,
             os.makedirs(out_dir)
 
         # Save trained model
-        torch.save(model.state_dict(), os.path.join(out_dir, f'cnn.pth'))
+        model_path = os.path.join(out_dir, f'cnn.pth')
+        torch.save(model.state_dict(), model_path)
+        print(f'Model saved to {model_path}.')
 
         # Write log about model and training performance
         hyperparameters = {

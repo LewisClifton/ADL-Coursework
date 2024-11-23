@@ -136,7 +136,6 @@ def main(rank,
 
     # Get train and validation data
     test_data = MIT(dataset_path=os.path.join(data_dir, "test_data.pth.tar"))
-    print("Loaded test dataset.")
 
     # Ground truth directory
     GT_fixations_dir = os.path.join(data_dir, "ALLFIXATIONMAPS")
@@ -151,7 +150,6 @@ def main(rank,
     # Wrap model with DDP
     model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=False)
 
-    print(f'Starting evaluation.')
     train_start_time = time.time()
 
     # Evaluate over the test set
