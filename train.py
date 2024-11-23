@@ -192,9 +192,7 @@ def val_epoch(model, val_loader, val_data, GT_fixations_dir, device):
 
 def train(rank, 
           world_size, 
-          train_data,
-          val_data,
-          GT_fixations_dir,
+          data_dir,
           out_dir,
           use_val,
           total_epochs,
@@ -210,6 +208,14 @@ def train(rank,
 
     # setup the process groups
     setup_gpus(rank, world_size)
+
+    # Get train and validation data
+    train_data = MIT(dataset_path=os.path.join(data_dir, "train_data.pth.tar"))
+    val_data = MIT(dataset_path=os.path.join(data_dir, "val_data.pth.tar"))
+    print("Loaded datasets.")
+
+    # Ground truth directory
+    GT_fixations_dir = os.path.join(data_dir, "ALLFIXATIONMAPS")
 
     # Create data loaders
     train_loader = get_data_loader(train_data, rank, world_size, batch_size=batch_size)
@@ -351,14 +357,6 @@ if __name__ == '__main__':
     out_dir = args.out_dir
     use_val = args.use_val
 
-    # Get train and validation data
-    train_data = MIT(dataset_path=os.path.join(data_dir, "train_data.pth.tar"))
-    val_data = MIT(dataset_path=os.path.join(data_dir, "val_data.pth.tar"))
-    print("Loaded datasets.")
-
-    # Ground truth directory
-    GT_fixations_dir = os.path.join(data_dir, "ALLFIXATIONMAPS")
-
     # Hyperparameters
     total_epochs = args.epochs
     start_epoch = 0
@@ -378,9 +376,7 @@ if __name__ == '__main__':
     mp.spawn(
         train,
         args=(world_size,
-              train_data,
-              val_data,
-              GT_fixations_dir,
+              data_dir,
               out_dir,
               use_val,
               total_epochs,
