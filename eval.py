@@ -172,6 +172,13 @@ def main(rank,
     # Wrap model with DDP
     model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=False)
 
+    # Output directory
+    date = datetime.now()
+    out_dir = os.path.join(out_dir, f'eval/{date.strftime("%Y_%m_%d_%p%I_%M")}')
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
+
+    # For gettin runtime
     train_start_time = time.time()
 
     # Evaluate over the test set
@@ -207,12 +214,6 @@ def main(rank,
             'Average test AUC' : test_avg_auc,
             'Test runtime' : runtime,
         }
-
-        # Output directory
-        date = datetime.now()
-        out_dir = os.path.join(out_dir, f'eval/{date.strftime("%Y_%m_%d_%p%I_%M")}')
-        if not os.path.exists(out_dir):
-            os.makedirs(out_dir)
 
         # Save metrics
         save_log(out_dir, date, **{**final_test_metrics})
