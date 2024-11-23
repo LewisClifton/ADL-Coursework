@@ -5,8 +5,7 @@ from torch.utils.data import DataLoader
 import torch.distributed as dist
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
-import torch.optim as optim
-import torch.nn as nn
+import sys
 import numpy as np
 from PIL import Image
 from datetime import datetime
@@ -135,7 +134,7 @@ def evaluate(model, test_loader, test_data, GT_fixations_dir, image_dir, device,
             
                 # Save the concatenated image
                 concatenated_image.save(os.path.join(image_dir, f"{image_name}_comparison.jpg"))
-                quit()
+                sys.exit(0)
     
 
 
