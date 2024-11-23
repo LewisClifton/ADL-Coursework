@@ -120,15 +120,20 @@ def evaluate(model, test_loader, test_data, GT_fixations_dir, image_dir, device,
 
             if map_idx < num_saved_images and device == 0:
                 # Get ground truth image
-                GT_image = test_data.dataset[map_idx]["X"].cpu().numpy()[0]
+                GT_image = test_data.dataset[map_idx]["X"].cpu().numpy()
                 GT_image = np.moveaxis(GT_image, 0, -1)
 
                 # Make sure all images have the same dims
                 GT_image_resized = Image.fromarray(GT_image).resize((W, H), resample=Image.BICUBIC)
                 GT_image_resized = np.array(GT_image_resized)
 
+                print(np.shape(pred_fixMap))
+                print(np.shape(GT_fixMap))
+                print(np.shape(GT_image_resized))
+                exit(0)
+
                 # Concatenate images horizontally [original image, predicted saliency map, ground truth saliency map]
-                concatenated_image = Image.fromarray( np.concatenate([GT_image_resized, pred_fixMap, GT_fixMap], axis=1) ).convert('RGB')
+                concatenated_image = Image.fromarray( np.concatenate([GT_image_resized.convert('RGB'), pred_fixMap.convert('RGB'), GT_fixMap.convert('RGB')], axis=1) )
             
                 # Save the concatenated image
                 concatenated_image.save(os.path.join(image_dir, f"{image_name}_comparison.jpg"))
