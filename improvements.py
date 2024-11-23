@@ -49,7 +49,7 @@ class MrCNNStream(nn.Module):
 
         self.gaussian_priors = GaussianPriorMap(N=10)
 
-        self.conv4 = nn.Conv2d(in_channels=288, out_channels=512, kernel_size=3, stride=1, padding=0)
+        self.conv4 = nn.Conv2d(in_channels=288 + 10, out_channels=512, kernel_size=3, stride=1, padding=0)
 
         self.fc = nn.Linear(in_features=(512 * 3 * 3), out_features=512)
 
@@ -76,8 +76,9 @@ class MrCNNStream(nn.Module):
 
         # Gaussian maps
         gaussian_maps = self.gaussian_priors(x.shape[3], x.shape[4])
-
         x = torch.cat([x, gaussian_maps], dim=1)
+        x = self.conv4(x)
+
         
         # FC layer at end of stream
         x = torch.flatten(x, start_dim=1)
