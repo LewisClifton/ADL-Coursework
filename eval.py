@@ -222,7 +222,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_dir', type=str, help="Path to directory for dataset", required=True)
     parser.add_argument('--out_dir', type=str, help="Path to directory for saving model/log/images", required=True)
-    parser.add_argument('--model_path', type=int, help="Path of model to evaluate")
+    parser.add_argument('--model_path', type=str, help="Path of model to evaluate")
     parser.add_argument('--batch_size', type=int, help="Data loader batch size", default=256)
     parser.add_argument('--num_gpus', type=int, help="Number of gpus to train with", default=2)
     parser.add_argument('--num_saved_images', type=int, help="Number of comparison images to save", default=0)
