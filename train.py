@@ -323,12 +323,6 @@ def train(rank, world_size):
 
 if __name__ == '__main__':
 
-    print(f'devices: {torch.zeros(1).cuda(0)}')
-    print(f'devices: {torch.zeros(1).cuda(1)}')
-    for i in range(torch.cuda.device_count()):
-        print(torch.cuda.get_device_properties(i).name)
-    quit()
-
     # Command line args
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_dir', type=str, help="Path to directory for dataset", required=True)
