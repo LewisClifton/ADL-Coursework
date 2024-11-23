@@ -57,7 +57,7 @@ def load_model(model, model_path):
     return model
 
 
-def evaluate(model, test_loader, test_data, GT_fixations_dir, out_dir, device, num_saved_images=5):
+def evaluate(model, test_loader, test_data, GT_fixations_dir, image_dir, device, num_saved_images=5):
     # Set the model to evaluation mode
     model.eval()  
 
@@ -130,7 +130,6 @@ def evaluate(model, test_loader, test_data, GT_fixations_dir, out_dir, device, n
                 # Concatenate images horizontally [original image, predicted saliency map, ground truth saliency map]
                 concatenated_image = Image.fromarray( np.concatenate([GT_image_resized, pred_fixMap, GT_fixMap], axis=1) ).convert('RGB')
             
-
                 # Save the concatenated image
                 concatenated_image.save(os.path.join(image_dir, f"{image_name}_comparison.jpg"))
     
@@ -184,7 +183,7 @@ def main(rank,
     train_start_time = time.time()
 
     # Evaluate over the test set
-    test_avg_auc = evaluate(model, test_loader, test_data, GT_fixations_dir, out_dir, num_saved_images=num_saved_images, device=rank)
+    test_avg_auc = evaluate(model, test_loader, test_data, GT_fixations_dir, image_dir, num_saved_images=num_saved_images, device=rank)
 
     # Get runtime
     runtime = time.time() - train_start_time
