@@ -212,7 +212,8 @@ def train(rank,
     # Get train and validation data
     train_data = MIT(dataset_path=os.path.join(data_dir, "train_data.pth.tar"))
     val_data = MIT(dataset_path=os.path.join(data_dir, "val_data.pth.tar"))
-    print("Loaded datasets.")
+    if rank == 0:
+        print("Loaded datasets.")
 
     # Ground truth directory
     GT_fixations_dir = os.path.join(data_dir, "ALLFIXATIONMAPS")

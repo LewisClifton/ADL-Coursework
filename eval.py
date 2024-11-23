@@ -57,7 +57,7 @@ def load_model(model, model_path):
     return model
 
 
-def evaluate(model, test_loader, test_data, GT_fixations_dir, device):
+def evaluate(model, test_loader, test_data, GT_fixations_dir, device, num_saved_images=5):
     # Set the model to evaluation mode
     model.eval()  
 
@@ -118,6 +118,27 @@ def evaluate(model, test_loader, test_data, GT_fixations_dir, device):
             preds[image_name] = pred_fixMap
             targets[image_name] = GT_fixMap
 
+            if map_idx < num_saved_images:
+                # Get ground truth image
+                GT_image = test_data.dataset[map_idx]["X"].cpu().numpy()[0]
+                GT_image = np.moveaxis(GT_image, 0, -1)
+
+                # Make sure all images have the same dims
+                GT_image_resized = Image.fromarray(GT_image).resize((W, H), resample=Image.BICUBIC)
+                GT_image_resized = np.array(GT_image_resized)
+
+                # Concatenate images horizontally [original image, predicted saliency map, ground truth saliency map]
+                concatenated_image = Image.fromarray( np.concatenate([GT_image_resized, pred_fixMap, GT_fixMap], axis=1) )
+                
+                # Directory to save images to
+                image_dir = os.path.join(out_dir, "Comparison images")
+                os.makedirs(image_dir, exist_ok=True)
+
+                # Save the concatenated image
+                concatenated_image.save(os.path.join(image_dir, f"{image_name}_comparison.jpg"))
+    
+
+
         # Calculate validation auc metric
         avg_auc = calculate_auc(preds, targets)
 
@@ -129,7 +150,8 @@ def main(rank,
           data_dir,
           out_dir,
           model_path,
-          batch_size):
+          batch_size,
+          num_saved_images):
 
     # setup the process groups
     setup_gpus(rank, world_size)
@@ -153,7 +175,7 @@ def main(rank,
     train_start_time = time.time()
 
     # Evaluate over the test set
-    test_avg_auc = evaluate(model, test_loader, test_data, GT_fixations_dir, device=rank)
+    test_avg_auc = evaluate(model, test_loader, test_data, GT_fixations_dir, num_saved_images=num_saved_images, device=rank)
 
     # Get runtime
     runtime = time.strftime("%H:%M:%S", time.gmtime((time.time() - train_start_time)))
@@ -199,16 +221,18 @@ if __name__ == '__main__':
     # Command line args
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_dir', type=str, help="Path to directory for dataset", required=True)
-    parser.add_argument('--out_dir', type=str, help="Path to directory for saving model/log", required=True)
+    parser.add_argument('--out_dir', type=str, help="Path to directory for saving model/log/images", required=True)
     parser.add_argument('--model_path', type=int, help="Path of model to evaluate")
     parser.add_argument('--batch_size', type=int, help="Data loader batch size")
     parser.add_argument('--num_gpus', type=int, help="Number of gpus to train with", default=2)
+    parser.add_argument('--num_saved_images', type=int, help="Number of comparison images to save", default=0)
     args = parser.parse_args()
     
     data_dir = args.data_dir
     out_dir = args.out_dir
     model_path = args.model_path
     batch_size = args.batch_size
+    num_saved_images = args.num_saved_images
 
     # Initialise gpus
     world_size = args.num_gpus 
@@ -218,7 +242,8 @@ if __name__ == '__main__':
               data_dir,
               out_dir,
               model_path,
-              batch_size),
+              batch_size,
+              num_saved_images),
         nprocs=world_size)
     
     
