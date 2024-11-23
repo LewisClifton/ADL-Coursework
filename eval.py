@@ -121,22 +121,21 @@ def evaluate(model, test_loader, test_data, GT_fixations_dir, image_dir, device,
             if map_idx < num_saved_images and device == 0:
                 # Get ground truth image
                 GT_image = test_data.dataset[map_idx]["X"].cpu().numpy()
-                GT_image = np.moveaxis(GT_image, 0, -1)
 
-                # Make sure all images have the same dims
-                GT_image_resized = Image.fromarray(GT_image).resize((W, H), resample=Image.BICUBIC)
-                GT_image_resized = np.array(GT_image_resized)
+                # Make the fixation maps 3 channel
+                pred_fixMap_rgb = np.stack((pred_fixMap,) * 3, axis=-1)
+                GT_fixMap_rgb = np.stack((GT_fixMap,) * 3, axis=-1)
 
-                print(np.shape(pred_fixMap))
-                print(np.shape(GT_fixMap))
-                print(np.shape(GT_image_resized))
-                exit(0)
+                # Transpose the RGB image to match the shape (height, width, channels)
+                GT_image_transposed = np.transpose(GT_image, (1, 2, 0)) 
 
-                # Concatenate images horizontally [original image, predicted saliency map, ground truth saliency map]
-                concatenated_image = Image.fromarray( np.concatenate([GT_image_resized.convert('RGB'), pred_fixMap.convert('RGB'), GT_fixMap.convert('RGB')], axis=1) )
+                # Concatenate all three images along the width (axis 1) and convert to PIL image
+                concatenated_image = np.concatenate((pred_fixMap_rgb, GT_fixMap_rgb, GT_image_transposed), axis=1)
+                concatenated_image = Image.fromarray( (concatenated_image * 255).astype(np.unit8) ) 
             
                 # Save the concatenated image
                 concatenated_image.save(os.path.join(image_dir, f"{image_name}_comparison.jpg"))
+                quit()
     
 
 
