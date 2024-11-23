@@ -129,11 +129,7 @@ def evaluate(model, test_loader, test_data, GT_fixations_dir, out_dir, device, n
 
                 # Concatenate images horizontally [original image, predicted saliency map, ground truth saliency map]
                 concatenated_image = Image.fromarray( np.concatenate([GT_image_resized, pred_fixMap, GT_fixMap], axis=1) ).convert('RGB')
-                
-                # Directory to save images to
-                image_dir = os.path.join(out_dir, "Comparison images")
-                if not os.path.exists(image_dir):
-                    os.makedirs(image_dir, exist_ok=True)
+            
 
                 # Save the concatenated image
                 concatenated_image.save(os.path.join(image_dir, f"{image_name}_comparison.jpg"))
@@ -176,8 +172,13 @@ def main(rank,
     # Output directory
     date = datetime.now()
     out_dir = os.path.join(out_dir, f'eval/{date.strftime("%Y_%m_%d_%p%I_%M")}')
-    if not os.path.exists(out_dir):
+    if not os.path.exists(out_dir) and rank == 0:
         os.makedirs(out_dir)
+
+    # Directory to save images to
+    image_dir = os.path.join(out_dir, "Comparison images")
+    if not os.path.exists(image_dir) and rank == 0:
+        os.makedirs(image_dir, exist_ok=True)
 
     # For gettin runtime
     train_start_time = time.time()
