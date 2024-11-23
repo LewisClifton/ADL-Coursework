@@ -120,7 +120,7 @@ def evaluate(model, test_loader, test_data, GT_fixations_dir, image_dir, device,
 
             if map_idx < num_saved_images and device == 0:
                 # Get ground truth image
-                GT_image = test_data.dataset[map_idx]["X"].cpu().numpy().transpose(1, 2, 0)#[..., ::-1]
+                GT_image = test_data.dataset[map_idx]["X"].cpu().numpy().transpose(1, 2, 0)[..., ::-1]
 
                 # Make the fixation maps 3 channel
                 pred_fixMap_rgb = np.stack((pred_fixMap,) * 3, axis=-1) * 255
