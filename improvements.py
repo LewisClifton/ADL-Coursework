@@ -49,9 +49,9 @@ class MrCNNStream(nn.Module):
 
         self.gaussian_priors = GaussianPriorMap(N=10)
 
-        self.conv4 = nn.Conv2d(in_channels=(288 * 3 * 3 + 10), out_channels=2560, kernel_size=3, stride=1, padding=0)
+        self.conv4 = nn.Conv2d(in_channels=288, out_channels=512, kernel_size=3, stride=1, padding=0)
 
-        self.fc = nn.Linear(in_features=2560, out_features=512)
+        self.fc = nn.Linear(in_features=(512 * 3 * 3), out_features=512)
 
         self.dropout2 = nn.Dropout(p=0.5)
 
