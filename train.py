@@ -272,7 +272,7 @@ def train(rank,
             if rank == 0:
                 print(f"Epoch [{epoch+1}/{total_epochs}] (time: {epoch_time}), Train BCE loss: {avg_train_loss:.4f}, Train accuracy: {train_accuracy:.2f}, Validaton mean auc: {avg_val_auc}")
 
-            train_metrics['Average val auc per train epoch'].append(round(avg_train_loss, 2))
+            train_metrics['Average val auc per train epoch'].append(round(avg_val_auc, 2))
         else:
             epoch_time = time.strftime("%H:%M:%S", time.gmtime((time.time() - epoch_start_time)))
             if rank == 0:
