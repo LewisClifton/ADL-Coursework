@@ -8,7 +8,6 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.optim as optim
 import torch.nn as nn
 import numpy as np
-import cv2
 from PIL import Image
 from datetime import datetime
 import time
@@ -168,8 +167,11 @@ def val_epoch(model, val_loader, val_data, GT_fixations_dir, device):
             _, H, W = val_data.dataset[map_idx]["X"].cpu().numpy().shape
             image_name = val_data.dataset[map_idx]["file"].replace(".jpeg", "")
 
-            # Upscale the predicted fixation map
-            pred_fixMap = cv2.resize(saliency_maps[map_idx], (W, H), interpolation=cv2.INTER_CUBIC)
+            # Convert the NumPy array to a PIL Image
+            saliency_map = Image.fromarray(saliency_maps[map_idx])
+
+            # Resize the image
+            pred_fixMap = np.array( saliency_map.resize((W, H), resample=Image.BICUBIC) )
 
             # Obtain the ground truth fixation map
             GT_fixMap = Image.open(os.path.join(GT_fixations_dir, f"{image_name}_fixMap.jpg"))

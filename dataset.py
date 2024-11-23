@@ -5,8 +5,6 @@ from torch.utils import data
 from torch import Tensor
 from typing import Tuple
 
-import cv2
-import numpy as np
 
 def crop_to_region(coords: Tuple[int], img: Tensor, crop_size: int=42) -> Tensor:
     """ 
