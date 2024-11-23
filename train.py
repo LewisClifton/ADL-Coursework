@@ -190,7 +190,21 @@ def val_epoch(model, val_loader, val_data, GT_fixations_dir, device):
         return avg_auc
 
 
-def train(rank, world_size):
+def train(rank, 
+          world_size, 
+          data_dir,
+          out_dir,
+          use_val,
+          total_epochs,
+          start_epoch,
+          batch_size,
+          learning_rate,
+          start_momentum,
+          end_momentum,
+          momentum_delta,
+          weight_decay,
+          checkpoint_dir,
+          checkpoint_freq):
 
     # setup the process groups
     setup_gpus(rank, world_size)
@@ -361,7 +375,20 @@ if __name__ == '__main__':
     world_size = args.num_gpus 
     mp.spawn(
         train,
-        args=(world_size,),
+        args=(world_size,
+              data_dir,
+              out_dir,
+              use_val,
+              total_epochs,
+              start_epoch,
+              batch_size,
+              learning_rate,
+              start_momentum,
+              end_momentum,
+              momentum_delta,
+              weight_decay,
+              checkpoint_dir,
+              checkpoint_freq),
         nprocs=world_size)
     
     # Destroy processes
