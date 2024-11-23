@@ -108,7 +108,7 @@ def evaluate(model, test_loader, test_data, GT_fixations_dir, image_dir, device,
             pred_fixMap = np.array( saliency_map.resize((W, H), resample=Image.BICUBIC) )
 
             # Obtain the ground truth fixation map
-            GT_fixMap = Image.open(os.path.join(GT_fixations_dir, f"{image_name}_fixPts.jpg"))
+            GT_fixMap = Image.open(os.path.join(GT_fixations_dir, f"{image_name}_fixMap.jpg"))
             GT_fixMap = np.array(GT_fixMap)
 
             # GT_fixPoints = Image.open(os.path.join(os.getcwd(), GT_fixations_dir, f"{image_name}_fixPts.jpg"))
@@ -120,7 +120,7 @@ def evaluate(model, test_loader, test_data, GT_fixations_dir, image_dir, device,
 
             if map_idx < num_saved_images and device == 0:
                 # Get ground truth image
-                GT_image = test_data.dataset[map_idx]["X"].cpu().numpy().transpose(1, 2, 0)[..., ::-1]
+                GT_image = test_data.dataset[map_idx]["X"].cpu().numpy().transpose(1, 2, 0)#[..., ::-1]
 
                 # Make the fixation maps 3 channel
                 pred_fixMap_rgb = np.stack((pred_fixMap,) * 3, axis=-1)
