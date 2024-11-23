@@ -1,6 +1,10 @@
+import re
+from typing import OrderedDict
 import torch
 from torch.utils.data import DataLoader
-import torch.nn.functional as F
+import torch.distributed as dist
+from torch.utils.data.distributed import DistributedSampler
+from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.optim as optim
 import torch.nn as nn
 import numpy as np
@@ -10,6 +14,7 @@ from datetime import datetime
 import time
 import os
 import argparse
+import torch.multiprocessing as mp
 
 from dataset import MIT
 from model import MrCNN
@@ -22,10 +27,32 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.backends.cudnn.enabled = True
 
 
+def setup(rank, world_size):
+    os.environ['MASTER_ADDR'] = 'localhost'
+    os.environ['MASTER_PORT'] = '12355'
+    dist.init_process_group("nccl", rank=rank, world_size=world_size)
+
+def prepare(dataset, rank, world_size, batch_size=32):
+    sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=False, drop_last=False)
+    
+    dataloader = DataLoader(dataset, batch_size=batch_size, pin_memory=False, num_workers=0, drop_last=False, shuffle=False, sampler=sampler)
+    
+    return dataloader
+
 # Load model checkpoint
-def load_checkpoint(checkpoint_path):
+def load_checkpoint(model, optimizer, checkpoint_path):
+    
     checkpoint = torch.load(checkpoint_path, weights_only=True)
-    model.load_state_dict(checkpoint['model_state_dict'])
+
+    model_dict = OrderedDict()
+    pattern = re.compile('module.')
+    for k,v in checkpoint['model_state_dict'].items():
+        if re.search("module", k):
+            model_dict[re.sub(pattern, '', k)] = v
+        else:
+            model_dict = checkpoint['model_state_dict']
+
+    model.load_state_dict(model_dict)
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     start_epoch = checkpoint['epoch']
 
@@ -49,19 +76,16 @@ def apply_conv_weight_constraint(model, weight_constraint=0.1):
 def increase_momentum_linear(optimizer, start_momentum, momentum_delta, epoch):
     optimizer.param_groups[0]['momentum'] = start_momentum + epoch * momentum_delta
 
-def train_epoch(model, train_loader, optimizer):
+def train_epoch(model, train_loader, optimizer, criterion):
     # Set the model to training mode
     model.train()  
 
     running_loss = 0.0
     correct_predictions = 0
     total_samples = 0
-    batch = 0
 
     # Iterate over the training data
     for (inputs, labels) in train_loader:    
-        batch+=1
-        print(batch)
         
         # Get the different resolutions for each image in the batch (shape=[batch_size, 3, 42, 42])
         x1 = inputs[:, 0, :, :, :].to(device) # 400x400
@@ -102,7 +126,7 @@ def train_epoch(model, train_loader, optimizer):
     return avg_loss, accuracy
 
 
-def val_epoch(model, val_loader, val_data):
+def val_epoch(model, val_loader, val_data, GT_fixations_dir):
     # Set the model to evaluation mode
     model.eval()  
 
@@ -150,7 +174,7 @@ def val_epoch(model, val_loader, val_data):
             pred_fixMap = cv2.resize(saliency_maps[map_idx], (W, H), interpolation=cv2.INTER_CUBIC)
 
             # Obtain the ground truth fixation map
-            GT_fixMap = Image.open(os.path.join(os.getcwd(), GT_fixations_dir, f"{image_name}_fixMap.jpg"))
+            GT_fixMap = Image.open(os.path.join(GT_fixations_dir, f"{image_name}_fixMap.jpg"))
             GT_fixMap = np.array(GT_fixMap)
 
             # GT_fixPoints = Image.open(os.path.join(os.getcwd(), GT_fixations_dir, f"{name}_fixPts.jpg"))
@@ -166,39 +190,10 @@ def val_epoch(model, val_loader, val_data):
         return avg_auc
 
 
+def train(rank, world_size):
 
-if __name__ == '__main__':
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--data_dir', type=str, help="Path to directory for dataset", required=True)
-    parser.add_argument('--out_dir', type=str, help="Path to directory for saving model/log", required=True)
-    parser.add_argument('--epochs', type=int, help="Number of epochs to train with", default=5)
-    parser.add_argument('--use_val', type=bool, help='Track validation metrics during training', default=False)
-    parser.add_argument('--batch_size', type=int, help="Minibatch size", default=256)
-    parser.add_argument('--learning_rate', type=float, help="Learning rate", default=0.02)
-    parser.add_argument('--start_momentum', type=float, help="Optimiser start momentum", default=0.9)
-    parser.add_argument('--end_momentum', type=float, help="Optimiser end momentum", default=0.99)
-    parser.add_argument('--conv_weight_decay', type=float, help="Weight decay threshold of the first convolutional layer", default=2e-4)
-    parser.add_argument('--checkpoint_path', type=str, help="Relative path of saved checkpoint from --out_dir")
-    parser.add_argument('--checkpoint_freq', type=int, help="How many epochs between saving checkpoint. -1: don't save checkpoints", default=-1)
-    args = parser.parse_args()
-    
-    data_dir = args.data_dir
-    out_dir = args.out_dir
-    use_val = args.use_val
-
-    total_epochs = args.epochs
-    start_epoch = 0
-    batch_size = args.batch_size
-    learning_rate = args.learning_rate
-    start_momentum = args.start_momentum
-    end_momentum = args.end_momentum
-    momentum_delta = (end_momentum - start_momentum) / total_epochs # linear momentum increase
-    weight_decay = args.conv_weight_decay
-
-    # Checkpoint path
-    checkpoint_dir = args.checkpoint_path
-    checkpoint_freq = args.checkpoint_freq # every checkpoint_freq epochs, save model checkpoint
+    # setup the process groups
+    setup(rank, world_size)
 
     # Get train and validation data
     train_data = MIT(dataset_path=os.path.join(data_dir, "train_data.pth.tar"))
@@ -207,13 +202,16 @@ if __name__ == '__main__':
 
     # Ground truth directory
     GT_fixations_dir = os.path.join(data_dir, "ALLFIXATIONMAPS")
-    
-    # Initialise model
-    model = MrCNN().to(device)
 
     # Create data loaders
-    train_loader = DataLoader(train_data, batch_size=256)
-    val_loader = DataLoader(val_data, batch_size=256)
+    train_loader = prepare(train_data, rank, world_size, batch_size=batch_size)
+    val_loader = prepare(val_data, rank, world_size, batch_size=batch_size)
+
+    # Create the model
+    model = MrCNN().to(rank)
+    
+    # Wrap model with DDP
+    model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=True)
 
     # Use cross entropy loss as stated in the reference paper
     criterion = nn.BCELoss()
@@ -224,7 +222,7 @@ if __name__ == '__main__':
     # Load from checkpoints if required
     if checkpoint_dir:
         print("Loading from checkpoint")
-        model, optimizer, start_epoch = load_checkpoint(checkpoint_dir)
+        model, optimizer, start_epoch = load_checkpoint(model, optimizer, checkpoint_dir)
 
     print(f'Starting training (Epoch {start_epoch+1}/{total_epochs})')
 
@@ -242,14 +240,14 @@ if __name__ == '__main__':
         epoch_start_time = time.time()
         
         # Performing single train epoch and get train metrics
-        avg_train_loss, train_accuracy = train_epoch(model, train_loader, optimizer)
+        avg_train_loss, train_accuracy = train_epoch(model, train_loader, optimizer, criterion)
 
         train_metrics["Average BCE loss per train epoch"].append(avg_train_loss, 2)
         train_metrics["Average accuracy per train epoch"].append(train_accuracy, 2)
 
         if use_val:
             # Perform single validation epoch and get validation metrics
-            avg_val_auc = val_epoch(model, val_loader, val_data)
+            avg_val_auc = val_epoch(model, val_loader, val_data, GT_fixations_dir)
 
             epoch_time = (time.time() - epoch_start_time).strftime("%H:%M:%S")
             print(f"Epoch [{epoch+1}/{total_epochs}] (time: {epoch_time}), Train BCE loss: {avg_train_loss:.4f}, Train accuracy: {train_accuracy:.2f}, Validaton mean auc: {avg_val_auc}")
@@ -273,25 +271,98 @@ if __name__ == '__main__':
     # Get runtime
     runtime = (time.time() - train_start_time).strftime("%H:%M:%S")
 
-    # Output directory
-    date = datetime.now()
-    out_dir = os.path.join(out_dir, f'trained/{date.strftime("%Y_%m_%d_%p%I_%M")}')
-    if not os.path.exists(out_dir):
-        os.makedirs(out_dir)
+    # Send all the gpu node metrics back to the main gpu
+    torch.cuda.set_device(rank)
+    train_metrics_gpus = [None for _ in range(world_size)]
+    dist.all_gather_object(train_metrics_gpus, train_metrics)
 
-    # Save trained model
-    torch.save(model.state_dict(), os.path.join(out_dir, f'cnn.pth'))
+    if rank == 0:
 
-    # Write log about model and training performance
-    hyperparameters = {
-        'total_epochs' : total_epochs,
-        'start_epoch' : start_epoch,
-        'batch_size' : batch_size,
-        'learning_rate' : learning_rate,
-        'start_momentum' : start_momentum,
-        'end_momentum' : end_momentum,
-        'momentum_delta' : momentum_delta,
-        'weight_decay' : weight_decay,
-        'Time to train' : runtime,
-    }
-    save_log(out_dir, date, **{**train_metrics, **hyperparameters})
+        # Split the metrics from train_metrics_gpus
+        bce_losses = [gpu_metrics["Average BCE loss per train epoch"] for gpu_metrics in train_metrics_gpus]
+        avg_accs = [gpu_metrics["Average accuracy per train epoch"] for gpu_metrics in train_metrics_gpus]
+        avg_val_aucs = [gpu_metrics["Average val auc per train epoch"] for gpu_metrics in train_metrics_gpus]
+
+        # Stack the metrics and calculate mean across GPUs for each epoch
+        bce_losses = np.mean(np.vstack(bce_losses), axis=0)
+        avg_accs = np.mean(np.vstack(avg_accs), axis=0)
+        avg_val_aucs = np.mean(np.vstack(avg_val_aucs), axis=0)
+
+        # Final train metric for the log
+        final_train_metrics = {
+            "Average BCE loss per train epoch": bce_losses.tolist(),
+            "Average accuracy per train epoch": avg_accs.tolist(),
+            "Average val auc per train epoch": avg_val_aucs.tolist(),
+        }
+
+        # Output directory
+        date = datetime.now()
+        out_dir = os.path.join(out_dir, f'trained/{date.strftime("%Y_%m_%d_%p%I_%M")}')
+        if not os.path.exists(out_dir):
+            os.makedirs(out_dir)
+
+        # Save trained model
+        torch.save(model.state_dict(), os.path.join(out_dir, f'cnn.pth'))
+
+        # Write log about model and training performance
+        hyperparameters = {
+            'total_epochs' : total_epochs,
+            'start_epoch' : start_epoch,
+            'batch_size' : batch_size,
+            'learning_rate' : learning_rate,
+            'start_momentum' : start_momentum,
+            'end_momentum' : end_momentum,
+            'momentum_delta' : momentum_delta,
+            'weight_decay' : weight_decay,
+            'Time to train' : runtime,
+        }
+        save_log(out_dir, date, **{**final_train_metrics, **hyperparameters})
+
+
+if __name__ == '__main__':
+
+    import torch
+    for i in range(torch.cuda.device_count()):
+        print(torch.cuda.get_device_properties(i).name)
+    quit()
+
+    # Command line args
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--data_dir', type=str, help="Path to directory for dataset", required=True)
+    parser.add_argument('--out_dir', type=str, help="Path to directory for saving model/log", required=True)
+    parser.add_argument('--epochs', type=int, help="Number of epochs to train with", default=5)
+    parser.add_argument('--num_gpus', type=int, help="Number of gpus to train with", default=2)
+    parser.add_argument('--use_val', type=bool, help='Track validation metrics during training', default=False)
+    parser.add_argument('--batch_size', type=int, help="Minibatch size", default=256)
+    parser.add_argument('--learning_rate', type=float, help="Learning rate", default=0.02)
+    parser.add_argument('--start_momentum', type=float, help="Optimiser start momentum", default=0.9)
+    parser.add_argument('--end_momentum', type=float, help="Optimiser end momentum", default=0.99)
+    parser.add_argument('--conv_weight_decay', type=float, help="Weight decay threshold of the first convolutional layer", default=2e-4)
+    parser.add_argument('--checkpoint_path', type=str, help="Relative path of saved checkpoint from --out_dir")
+    parser.add_argument('--checkpoint_freq', type=int, help="How many epochs between saving checkpoint. -1: don't save checkpoints", default=-1)
+    args = parser.parse_args()
+    
+    data_dir = args.data_dir
+    out_dir = args.out_dir
+    use_val = args.use_val
+
+    # Hyperparameters
+    total_epochs = args.epochs
+    start_epoch = 0
+    batch_size = args.batch_size
+    learning_rate = args.learning_rate
+    start_momentum = args.start_momentum
+    end_momentum = args.end_momentum
+    momentum_delta = (end_momentum - start_momentum) / total_epochs # linear momentum increase
+    weight_decay = args.conv_weight_decay
+
+    # Checkpoint path
+    checkpoint_dir = args.checkpoint_path
+    checkpoint_freq = args.checkpoint_freq # every checkpoint_freq epochs, save model checkpoint
+
+    # Initialise gpus
+    world_size = args.num_gpus 
+    mp.spawn(
+        train,
+        args=(world_size),
+        nprocs=world_size)
