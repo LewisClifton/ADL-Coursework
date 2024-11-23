@@ -193,9 +193,11 @@ def main(rank,
 
     if rank == 0:
 
-        # Split the metrics from train_metrics_gpus
-        test_avg_auc = np.mean(test_metrics_gpus['Average test AUC'])
-        runtime = np.mean(test_metrics_gpus['Test runtime'])
+        test_avg_aucs = [gpu_metrics['Average test AUC'] for gpu_metrics in test_metrics_gpus]
+        runtimes = [gpu_metrics['Test runtime'] for gpu_metrics in test_metrics_gpus]
+
+        test_avg_auc = np.mean(np.vstack(test_avg_aucs), axis=0)
+        runtime = np.mean(np.vstack(runtimes), axis=0)
 
         final_test_metrics = {
             'Model path' : model_path,
