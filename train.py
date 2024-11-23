@@ -150,13 +150,14 @@ def val_epoch(model, val_loader, val_data, GT_fixations_dir, device):
 
                 # Get the fixation map this fixation value belonds to
                 map_index = pixel_index // val_data.num_crops
+                map_pixel_index = pixel_index % val_data.num_crops
                 
                 # Get index of fixation value
-                row = (pixel_index - (map_index * val_data.num_crops)) // 50
-                col = (pixel_index - (map_index * val_data.num_crops)) % 50
+                row = map_pixel_index // 50
+                col = map_pixel_index % 50
 
                 # Write the fixation value to the necessary fixation map
-                saliency_maps[map_index, row, col] = fixations[i].item()
+                saliency_maps[map_index, col, row] = fixations[i].item()
 
                 pixel_index += 1                
 
@@ -168,7 +169,7 @@ def val_epoch(model, val_loader, val_data, GT_fixations_dir, device):
             image_name = val_data.dataset[map_idx]["file"].replace(".jpeg", "")
 
             # Convert the NumPy array to a PIL Image
-            saliency_map = Image.fromarray(saliency_maps[map_idx])
+            saliency_map = Image.fromarray(saliency_maps[map_idx].T)
 
             # Resize the image
             pred_fixMap = np.array( saliency_map.resize((W, H), resample=Image.BICUBIC) )
@@ -176,9 +177,6 @@ def val_epoch(model, val_loader, val_data, GT_fixations_dir, device):
             # Obtain the ground truth fixation map
             GT_fixMap = Image.open(os.path.join(GT_fixations_dir, f"{image_name}_fixMap.jpg"))
             GT_fixMap = np.array(GT_fixMap)
-
-            # GT_fixPoints = Image.open(os.path.join(os.getcwd(), GT_fixations_dir, f"{name}_fixPts.jpg"))
-            # GT_fixPoints = np.array(GT_fixPoints)
 
             # Add to dictionary
             preds[image_name] = pred_fixMap
