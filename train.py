@@ -225,7 +225,7 @@ def train(rank,
     model = MrCNN().to(rank)
     
     # Wrap model with DDP
-    model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=True)
+    model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=False)
 
     # Use cross entropy loss as stated in the reference paper
     criterion = nn.BCELoss()
