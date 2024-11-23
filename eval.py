@@ -111,9 +111,6 @@ def evaluate(model, test_loader, test_data, GT_fixations_dir, image_dir, device,
             GT_fixMap = Image.open(os.path.join(GT_fixations_dir, f"{image_name}_fixMap.jpg"))
             GT_fixMap = np.array(GT_fixMap)
 
-            # GT_fixPoints = Image.open(os.path.join(os.getcwd(), GT_fixations_dir, f"{image_name}_fixPts.jpg"))
-            # GT_fixPoints = np.array(GT_fixPoints)
-
             # Add to dictionary
             preds[image_name] = pred_fixMap
             targets[image_name] = GT_fixMap
