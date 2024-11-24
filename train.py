@@ -1,9 +1,7 @@
 import re
 from typing import OrderedDict
 import torch
-from torch.utils.data import DataLoader
 import torch.distributed as dist
-from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.optim as optim
 import torch.nn as nn
@@ -23,19 +21,6 @@ from utils import *
 
 # Set up cuda
 torch.backends.cudnn.enabled = True
-
-# Setup for multi-gpu loading
-def setup_gpus(rank, world_size):
-    os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12355'
-    dist.init_process_group("nccl", rank=rank, world_size=world_size)
-
-# Get the dataloaders
-def get_data_loader(dataset, rank, world_size, batch_size=32):
-    sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=False, drop_last=False)
-    dataloader = DataLoader(dataset, batch_size=batch_size, pin_memory=False, num_workers=0, drop_last=False, shuffle=False, sampler=sampler)
-    
-    return dataloader
 
 # Load model checkpoint
 def load_checkpoint(model, optimizer, checkpoint_path):
