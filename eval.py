@@ -117,12 +117,8 @@ def evaluate(model, test_loader, test_data, GT_fixations_dir, image_dir, device,
 
             if map_idx < num_saved_images and device == 0:
 
-                # Make the fixation maps 3 channel
-                pred_fixMap_rgb = np.stack((pred_fixMap,) * 3, axis=-1) * 255
-                GT_fixMap_rgb = np.stack((GT_fixMap,) * 3, axis=-1)
-
                 # Concatenate all three images along the width (axis 1) and convert to PIL image
-                concatenated_image = np.concatenate((pred_fixMap_rgb, GT_fixMap_rgb), axis=1)
+                concatenated_image = np.concatenate((pred_fixMap, GT_fixMap), axis=1)
                 concatenated_image = Image.fromarray( (concatenated_image).astype(np.uint8) ) 
             
                 # Save the concatenated image
