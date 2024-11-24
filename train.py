@@ -183,7 +183,6 @@ def train(rank,
           batch_size,
           learning_rate,
           start_momentum,
-          end_momentum,
           momentum_delta,
           weight_decay,
           checkpoint_dir,
@@ -328,7 +327,7 @@ def train(rank,
             'start_momentum' : start_momentum,
             'end_momentum' : end_momentum,
             'momentum_delta' : momentum_delta,
-            'weight_decay' : weight_decay,
+            'lr_weight_decay' : weight_decay,
             'Time to train' : runtime,
         }
         save_log(out_dir, date, **{**final_train_metrics, **hyperparameters})
@@ -347,10 +346,10 @@ if __name__ == '__main__':
     parser.add_argument('--num_gpus', type=int, help="Number of gpus to train with", default=2)
     parser.add_argument('--use_val', type=bool, help='Track validation metrics during training', default=False)
     parser.add_argument('--batch_size', type=int, help="Minibatch size", default=256)
-    parser.add_argument('--learning_rate', type=float, help="Learning rate", default=0.02)
+    parser.add_argument('--learning_rate', type=float, help="Learning rate", default=0.002)
     parser.add_argument('--start_momentum', type=float, help="Optimiser start momentum", default=0.9)
     parser.add_argument('--end_momentum', type=float, help="Optimiser end momentum", default=0.99)
-    parser.add_argument('--conv_weight_decay', type=float, help="Weight decay threshold of the first convolutional layer", default=2e-4)
+    parser.add_argument('--lr_weight_decay', type=float, help="Learning rate weight decay", default=2e-4)
     parser.add_argument('--checkpoint_path', type=str, help="Relative path of saved checkpoint from --out_dir")
     parser.add_argument('--checkpoint_freq', type=int, help="How many epochs between saving checkpoint. -1: don't save checkpoints", default=-1)
     args = parser.parse_args()
@@ -367,7 +366,7 @@ if __name__ == '__main__':
     start_momentum = args.start_momentum
     end_momentum = args.end_momentum
     momentum_delta = (end_momentum - start_momentum) / total_epochs # linear momentum increase
-    weight_decay = args.conv_weight_decay
+    weight_decay = args.lr_weight_decay
 
     # Checkpoint path
     checkpoint_dir = args.checkpoint_path
@@ -386,7 +385,6 @@ if __name__ == '__main__':
               batch_size,
               learning_rate,
               start_momentum,
-              end_momentum,
               momentum_delta,
               weight_decay,
               checkpoint_dir,

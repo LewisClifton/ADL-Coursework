@@ -1,11 +1,7 @@
 import re
 from typing import OrderedDict
 import torch
-from torch.utils.data import DataLoader
 import torch.distributed as dist
-from torch.utils.data.distributed import DistributedSampler
-from torch.nn.parallel import DistributedDataParallel as DDP
-import sys
 import numpy as np
 from PIL import Image
 from datetime import datetime
