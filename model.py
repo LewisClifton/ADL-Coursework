@@ -10,9 +10,9 @@ import torch.nn.functional as F
 
 # The model structure is justified in the comments which quote the reference paper's description of the original Mr-CNN
 
-class _MrCNNStream(nn.Module):
+class MrCNNStream(nn.Module):
     def __init__(self):
-        super(_MrCNNStream, self).__init__()
+        super(MrCNNStream, self).__init__()
         
         # "96 filters with size 7×7 in the first C layer"
         # "160 and 288 filters with size 3×3 respectively in the second and the third C layer"
@@ -67,9 +67,9 @@ class MrCNN(nn.Module):
         super(MrCNN, self).__init__()
 
         # "Mr-CNN starts from three streams in lower layer"
-        self.stream1 = _MrCNNStream()
-        self.stream2 = _MrCNNStream()
-        self.stream3 = _MrCNNStream()
+        self.stream1 = MrCNNStream()
+        self.stream2 = MrCNNStream()
+        self.stream3 = MrCNNStream()
         
         # "The three streams are fused using another FC layer"
         # "512 neurons in all FC layers"
