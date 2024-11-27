@@ -38,8 +38,6 @@ The full list of flags can be given using `python train.py -h` but is also given
 - `--start_momentum`: Initial momentum for SGD (default: 0.9).
 - `--end_momentum`: Final momentum for SGD (default: 0.99).
 - `--lr_weight_decay`: Weight decay for learning rate (default: 2e-4).
-- `--checkpoint_path`: Path to resume training from a checkpoint.
-- `--checkpoint_freq`: Frequency of saving checkpoints in epochs (default: -1, disabled).
 
 ## Default Hyperparameters
 
