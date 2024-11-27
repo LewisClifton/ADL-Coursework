@@ -345,7 +345,6 @@ def train(rank,
                 'end_momentum' : end_momentum,
                 'momentum_delta' : momentum_delta,
                 'lr_weight_decay' : weight_decay,
-                'Time to train' : runtime,
             }
             save_log(out_dir, date, **{**final_train_metrics, **hyperparameters})
 
@@ -377,7 +376,6 @@ def train(rank,
                 'end_momentum' : end_momentum,
                 'momentum_delta' : momentum_delta,
                 'lr_weight_decay' : weight_decay,
-                'Time to train' : runtime,
             }
             save_log(out_dir, date, **{**train_metrics, **hyperparameters})
 
