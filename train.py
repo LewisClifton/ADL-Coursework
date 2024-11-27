@@ -48,12 +48,12 @@ def save_checkpoint(model, optimizer, epoch, checkpoint_dir):
                 'epoch': epoch},
                 f"{checkpoint_dir}/{datetime.now().strftime("%Y_%m_%d_%p%I_%M")}.pth")
 
-def apply_conv_weight_constraint(model, using_windows, weight_constraint=0.1):
+def apply_conv_weight_constraint(model, using_windows, world_size, weight_constraint=0.1):
     with torch.no_grad():
-        if using_windows:
-            convs = [model.stream1.conv1, model.stream2.conv1, model.stream3.conv1]
-        else:
+        if not using_windows and world_size > 1:
             convs = [model.module.stream1.conv1, model.module.stream2.conv1, model.module.stream3.conv1]
+        else:
+            convs = [model.stream1.conv1, model.stream2.conv1, model.stream3.conv1]
             
             
         for conv in convs:
@@ -64,7 +64,7 @@ def apply_conv_weight_constraint(model, using_windows, weight_constraint=0.1):
 def increase_momentum(optimizer, momentum_delta):
     optimizer.param_groups[0]['momentum'] =optimizer.param_groups[0]['momentum'] + momentum_delta
 
-def train_epoch(model, train_loader, optimizer, criterion, momentum_delta, using_windows, device):
+def train_epoch(model, train_loader, optimizer, criterion, momentum_delta, using_windows, world_size, device):
     # Set the model to training mode
     model.train()  
 
@@ -112,7 +112,7 @@ def train_epoch(model, train_loader, optimizer, criterion, momentum_delta, using
         increase_momentum(optimizer, momentum_delta)
         
         # Apply weight constraint to the first conv layer in the network
-        apply_conv_weight_constraint(model, using_windows=using_windows)
+        apply_conv_weight_constraint(model, using_windows=using_windows, world_size=world_size)
 
         break
 
@@ -205,7 +205,7 @@ def train(rank,
           using_windows):
 
     # setup the process groups if necessary
-    if not using_windows:
+    if not using_windows and world_size > 1:
         setup_gpus(rank, world_size)
 
     # Get train and validation data
@@ -263,7 +263,7 @@ def train(rank,
         epoch_start_time = time.time()
         
         # Performing single train epoch and get train metrics
-        avg_train_loss, train_accuracy = train_epoch(model, train_loader, optimizer, criterion, momentum_delta, using_windows, device=rank)
+        avg_train_loss, train_accuracy = train_epoch(model, train_loader, optimizer, criterion, momentum_delta, using_windows, world_size, device=rank)
 
         train_metrics["Average BCE loss per train epoch"].append(round(avg_train_loss, 2))
         train_metrics["Average accuracy per train epoch"].append(round(train_accuracy, 2))
@@ -291,7 +291,7 @@ def train(rank,
     # Get runtime
     train_metrics['Train runtime'] = time.time() - train_start_time
 
-    if not using_windows:
+    if not using_windows and world_size > 1:
         dist.barrier()
 
         # Send all the gpu node metrics back to the main gpu
@@ -421,7 +421,7 @@ if __name__ == '__main__':
     world_size = args.num_gpus 
     using_windows = args.using_windows
 
-    if using_windows:
+    if using_windows or world_size == 1:
         train(0, 1,
               data_dir,
               out_dir,
