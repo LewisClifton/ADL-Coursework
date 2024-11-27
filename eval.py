@@ -1,11 +1,8 @@
 import re
 from typing import OrderedDict
 import torch
-from torch.utils.data import DataLoader
 import torch.distributed as dist
-from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
-import sys
 import numpy as np
 from PIL import Image
 from datetime import datetime
@@ -23,22 +20,7 @@ from utils import *
 torch.backends.cudnn.enabled = True
 
 
-# Setup for multi-gpu loading
-def setup_gpus(rank, world_size):
-    os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12355'
-    dist.init_process_group("nccl", rank=rank, world_size=world_size)
-
-
-# Get the dataloaders
-def get_data_loader(dataset, rank, world_size, batch_size=32):
-    sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=False, drop_last=False)
-    dataloader = DataLoader(dataset, batch_size=batch_size, pin_memory=False, num_workers=0, drop_last=False, shuffle=False, sampler=sampler)
-    
-    return dataloader
-
-
-# Load model checkpoint
+# Load model
 def load_model(model, model_path):
     
     model_state_dict = torch.load(model_path, weights_only=True)
@@ -118,7 +100,7 @@ def evaluate(model, test_loader, test_data, GT_fixations_dir, image_dir, device,
             if map_idx < num_saved_images and device == 0:
 
                 # Concatenate all three images along the width (axis 1) and convert to PIL image
-                concatenated_image = np.concatenate((pred_fixMap, GT_fixMap), axis=1)
+                concatenated_image = np.concatenate((pred_fixMap * 255, GT_fixMap), axis=1)
                 concatenated_image = Image.fromarray( (concatenated_image).astype(np.uint8) ) 
             
                 # Save the concatenated image

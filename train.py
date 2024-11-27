@@ -1,9 +1,7 @@
 import re
 from typing import OrderedDict
 import torch
-from torch.utils.data import DataLoader
 import torch.distributed as dist
-from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.optim as optim
 import torch.nn as nn
@@ -24,19 +22,6 @@ from improvements import ImprovedMrCNN
 
 # Set up cuda
 torch.backends.cudnn.enabled = True
-
-# Setup for multi-gpu loading
-def setup_gpus(rank, world_size):
-    os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12355'
-    dist.init_process_group("nccl", rank=rank, world_size=world_size)
-
-# Get the dataloaders
-def get_data_loader(dataset, rank, world_size, batch_size=32):
-    sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=False, drop_last=False)
-    dataloader = DataLoader(dataset, batch_size=batch_size, pin_memory=False, num_workers=0, drop_last=False, shuffle=False, sampler=sampler)
-    
-    return dataloader
 
 # Load model checkpoint
 def load_checkpoint(model, optimizer, checkpoint_path):
@@ -64,26 +49,32 @@ def save_checkpoint(model, optimizer, epoch, checkpoint_dir):
                 'epoch': epoch},
                 f"{checkpoint_dir}/{datetime.now().strftime("%Y_%m_%d_%p%I_%M")}.pth")
 
-def apply_conv_weight_constraint(model, weight_constraint=0.1):
+def apply_conv_weight_constraint(model, using_windows, world_size, weight_constraint=0.1):
     with torch.no_grad():
-        for conv in [model.module.stream1.conv1, model.module.stream2.conv1, model.module.stream3.conv1]:
+        if not using_windows and world_size > 1:
+            convs = [model.module.stream1.conv1, model.module.stream2.conv1, model.module.stream3.conv1]
+        else:
+            convs = [model.stream1.conv1, model.stream2.conv1, model.stream3.conv1]
+            
+            
+        for conv in convs:
             norm = torch.linalg.norm(conv.weight, ord=2, dim=(2,3), keepdim=True)
             norm_condition = (norm > weight_constraint).expand_as(conv.weight.data)
             conv.weight.data[norm_condition] /= (norm + 1e-8).expand_as(conv.weight.data)[norm_condition]
 
-def increase_momentum_linear(optimizer, start_momentum, momentum_delta, epoch):
-    optimizer.param_groups[0]['momentum'] = start_momentum + epoch * momentum_delta
+def increase_momentum(optimizer, momentum_delta):
+    optimizer.param_groups[0]['momentum'] =optimizer.param_groups[0]['momentum'] + momentum_delta
 
-def train_epoch(model, train_loader, optimizer, criterion, device):
+def train_epoch(model, train_loader, optimizer, criterion, momentum_delta, using_windows, world_size, device):
     # Set the model to training mode
     model.train()  
 
-    running_loss = 0.0
+    running_loss = 0.0  
     correct_predictions = 0
     total_samples = 0
 
     # Iterate over the training data
-    for (inputs, labels) in train_loader:    
+    for _, (inputs, labels) in enumerate(train_loader):    
         
         # Get the different resolutions for each image in the batch (shape=[batch_size, 3, 42, 42])
         x1 = inputs[:, 0, :, :, :].to(device) # 400x400
@@ -116,6 +107,13 @@ def train_epoch(model, train_loader, optimizer, criterion, device):
         # Calculate number of correct predictions
         correct_predictions += (predicted.squeeze() == labels).sum().item()
         total_samples += labels.size(0)
+
+
+        # Linearly increase momentum to end momentum
+        increase_momentum(optimizer, momentum_delta)
+        
+        # Apply weight constraint to the first conv layer in the network
+        apply_conv_weight_constraint(model, using_windows=using_windows, world_size=world_size)
 
     # # Calculate the average loss and accuracy for the current epoch
     avg_loss = running_loss / len(train_loader)
@@ -200,14 +198,14 @@ def train(rank,
           learning_rate,
           start_momentum,
           end_momentum,
-          momentum_delta,
           weight_decay,
           checkpoint_dir,
           checkpoint_freq,
-          use_improvements):
+          using_windows):
 
-    # setup the process groups
-    setup_gpus(rank, world_size)
+    # setup the process groups if necessary
+    if not using_windows and world_size > 1:
+        setup_gpus(rank, world_size)
 
     # Get train and validation data
     train_data = MIT(dataset_path=os.path.join(data_dir, "train_data.pth.tar"))
@@ -229,10 +227,11 @@ def train(rank,
         model = ImprovedMrCNN().to(rank)
     
     # Wrap model with DDP
-    model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=False)
+    if world_size > 1:
+        model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=False)
 
     # Use cross entropy loss as stated in the reference paper
-    criterion = nn.BCELoss()
+    criterion = nn.BCELoss().to(rank)
 
     # Initialise SGD optimiser
     optimizer = optim.SGD(model.parameters(), lr=learning_rate, momentum=start_momentum, weight_decay=weight_decay)
@@ -243,14 +242,18 @@ def train(rank,
             print("Loading from checkpoint")
         model, optimizer, start_epoch = load_checkpoint(model, optimizer, checkpoint_dir)
 
-    if rank == 0:
-        print(f'Starting training (Epoch {start_epoch+1}/{total_epochs})')
-
     train_metrics = {
         "Average BCE loss per train epoch" : [],
         "Average accuracy per train epoch" : [],
         "Average val auc per train epoch" : [] 
     }
+
+    # Get the amount to increase the momentum by each iteration
+    total_iterations = len(train_loader) * total_epochs
+    momentum_delta = (end_momentum - start_momentum) / total_iterations # linear momentum increase
+
+    if rank == 0:
+        print(f'Starting training for {total_iterations} ({total_epochs } epochs)')
 
     train_start_time = time.time()
 
@@ -262,7 +265,7 @@ def train(rank,
         epoch_start_time = time.time()
         
         # Performing single train epoch and get train metrics
-        avg_train_loss, train_accuracy = train_epoch(model, train_loader, optimizer, criterion, device=rank)
+        avg_train_loss, train_accuracy = train_epoch(model, train_loader, optimizer, criterion, momentum_delta, using_windows, world_size, device=rank)
 
         train_metrics["Average BCE loss per train epoch"].append(round(avg_train_loss, 2))
         train_metrics["Average accuracy per train epoch"].append(round(train_accuracy, 2))
@@ -281,12 +284,6 @@ def train(rank,
             if rank == 0:
                 print(f"Epoch [{epoch+1}/{total_epochs}] (time: {epoch_time}), Train BCE loss: {avg_train_loss:.4f}, Train accuracy: {train_accuracy:.2f}")
 
-        # Linearly increase momentum to end momentum
-        increase_momentum_linear(optimizer, start_momentum, momentum_delta, epoch)
-        
-        # Apply weight constraint to the first conv layer in the network
-        apply_conv_weight_constraint(model)
-
         # Save checkpoint
         if rank == 0:
             if checkpoint_freq != -1:
@@ -296,84 +293,113 @@ def train(rank,
     # Get runtime
     train_metrics['Train runtime'] = time.time() - train_start_time
 
-    dist.barrier()
+    if not using_windows and world_size > 1:
+        dist.barrier()
 
-    # Send all the gpu node metrics back to the main gpu
-    torch.cuda.set_device(rank)
-    train_metrics_gpus = [None for _ in range(world_size)]
-    dist.all_gather_object(train_metrics_gpus, train_metrics)
+        # Send all the gpu node metrics back to the main gpu
+        torch.cuda.set_device(rank)
+        train_metrics_gpus = [None for _ in range(world_size)]
+        dist.all_gather_object(train_metrics_gpus, train_metrics)
 
-    if rank == 0:
-        print('Done training')
+        if rank == 0:
+            print('Done training')
 
-        # Get runtime
-        runtime = np.max([gpu_metrics['Train runtime'] for gpu_metrics in train_metrics_gpus])
-        runtime = time.strftime("%H:%M:%S", time.gmtime(runtime))
+            # Get runtime
+            runtime = np.max([gpu_metrics['Train runtime'] for gpu_metrics in train_metrics_gpus])
+            runtime = time.strftime("%H:%M:%S", time.gmtime(runtime))
 
-        # Split the metrics from train_metrics_gpus
-        bce_losses = [gpu_metrics["Average BCE loss per train epoch"] for gpu_metrics in train_metrics_gpus]
-        avg_accs = [gpu_metrics["Average accuracy per train epoch"] for gpu_metrics in train_metrics_gpus]
-        avg_val_aucs = [gpu_metrics["Average val auc per train epoch"] for gpu_metrics in train_metrics_gpus]
+            # Split the metrics from train_metrics_gpus
+            bce_losses = [gpu_metrics["Average BCE loss per train epoch"] for gpu_metrics in train_metrics_gpus]
+            avg_accs = [gpu_metrics["Average accuracy per train epoch"] for gpu_metrics in train_metrics_gpus]
+            avg_val_aucs = [gpu_metrics["Average val auc per train epoch"] for gpu_metrics in train_metrics_gpus]
 
-        # Stack the metrics and calculate mean across GPUs for each epoch
-        bce_losses = np.mean(np.vstack(bce_losses), axis=0)
-        avg_accs = np.mean(np.vstack(avg_accs), axis=0)
-        avg_val_aucs = np.mean(np.vstack(avg_val_aucs), axis=0)
+            # Stack the metrics and calculate mean across GPUs for each epoch
+            bce_losses = np.mean(np.vstack(bce_losses), axis=0)
+            avg_accs = np.mean(np.vstack(avg_accs), axis=0)
+            avg_val_aucs = np.mean(np.vstack(avg_val_aucs), axis=0)
 
+            # Final train metric for the log
+            final_train_metrics = {
+                "Train runtime" : runtime,
+                "Average BCE loss per train epoch": bce_losses.tolist(),
+                "Average accuracy per train epoch": avg_accs.tolist(),
+                "Average val auc per train epoch": avg_val_aucs.tolist(),
+            }
+
+            # Output directory
+            date = datetime.now()
+            out_dir = os.path.join(out_dir, f'trained/{date.strftime("%Y_%m_%d_%p%I_%M")}')
+            if not os.path.exists(out_dir):
+                os.makedirs(out_dir)
+
+            # Save trained model
+            model_path = os.path.join(out_dir, f'cnn.pth')
+            torch.save(model.state_dict(), model_path)
+            print(f'Model saved to {model_path}.')
+
+            # Write log about model and training performance
+            hyperparameters = {
+                'total_epochs' : total_epochs,
+                'start_epoch' : start_epoch,
+                'batch_size' : batch_size,
+                'learning_rate' : learning_rate,
+                'start_momentum' : start_momentum,
+                'end_momentum' : end_momentum,
+                'momentum_delta' : momentum_delta,
+                'lr_weight_decay' : weight_decay,
+            }
+            save_log(out_dir, date, **{**final_train_metrics, **hyperparameters})
+
+        if dist.is_initialized():
+            dist.destroy_process_group()
+
+    else: # using single gpu
         # Final train metric for the log
-        final_train_metrics = {
-            "Train runtime" : runtime,
-            "Average BCE loss per train epoch": bce_losses.tolist(),
-            "Average accuracy per train epoch": avg_accs.tolist(),
-            "Average val auc per train epoch": avg_val_aucs.tolist(),
-        }
+            train_metrics["Train runtime"] = time.strftime("%H:%M:%S", time.gmtime(train_metrics["Train runtime"]))
 
-        # Output directory
-        date = datetime.now()
-        out_dir = os.path.join(out_dir, f'trained/{date.strftime("%Y_%m_%d_%p%I_%M")}')
-        if not os.path.exists(out_dir):
-            os.makedirs(out_dir)
+            # Output directory
+            date = datetime.now()
+            out_dir = os.path.join(out_dir, f'trained/{date.strftime("%Y_%m_%d_%p%I_%M")}')
+            if not os.path.exists(out_dir):
+                os.makedirs(out_dir)
 
-        # Save trained model
-        model_path = os.path.join(out_dir, f'cnn.pth')
-        torch.save(model.state_dict(), model_path)
-        print(f'Model saved to {model_path}.')
+            # Save trained model
+            model_path = os.path.join(out_dir, f'cnn.pth')
+            torch.save(model.state_dict(), model_path)
+            print(f'Model saved to {model_path}.')
 
-        # Write log about model and training performance
-        hyperparameters = {
-            'total_epochs' : total_epochs,
-            'start_epoch' : start_epoch,
-            'batch_size' : batch_size,
-            'learning_rate' : learning_rate,
-            'start_momentum' : start_momentum,
-            'end_momentum' : end_momentum,
-            'momentum_delta' : momentum_delta,
-            'weight_decay' : weight_decay,
-            'Time to train' : runtime,
-        }
-        save_log(out_dir, date, **{**final_train_metrics, **hyperparameters})
+            # Write log about model and training performance
+            hyperparameters = {
+                'total_epochs' : total_epochs,
+                'start_epoch' : start_epoch,
+                'batch_size' : batch_size,
+                'learning_rate' : learning_rate,
+                'start_momentum' : start_momentum,
+                'end_momentum' : end_momentum,
+                'momentum_delta' : momentum_delta,
+                'lr_weight_decay' : weight_decay,
+            }
+            save_log(out_dir, date, **{**train_metrics, **hyperparameters})
 
-    if dist.is_initialized():
-        dist.destroy_process_group()
 
 
 if __name__ == '__main__':
 
     # Command line args
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_dir', type=str, help="Path to directory for dataset", required=True)
+    parser.add_argument('--data_dir', type=str, help="Path to directory for dataset containing *_data.pth.tar", required=True)
     parser.add_argument('--out_dir', type=str, help="Path to directory for saving model/log", required=True)
-    parser.add_argument('--epochs', type=int, help="Number of epochs to train with", default=5)
+    parser.add_argument('--epochs', type=int, help="Number of epochs to train with", default=20)
     parser.add_argument('--num_gpus', type=int, help="Number of gpus to train with", default=2)
     parser.add_argument('--use_val', type=bool, help='Track validation metrics during training', default=False)
     parser.add_argument('--batch_size', type=int, help="Minibatch size", default=256)
-    parser.add_argument('--learning_rate', type=float, help="Learning rate", default=0.02)
+    parser.add_argument('--learning_rate', type=float, help="Learning rate", default=0.002)
     parser.add_argument('--start_momentum', type=float, help="Optimiser start momentum", default=0.9)
     parser.add_argument('--end_momentum', type=float, help="Optimiser end momentum", default=0.99)
-    parser.add_argument('--conv_weight_decay', type=float, help="Weight decay threshold of the first convolutional layer", default=2e-4)
+    parser.add_argument('--lr_weight_decay', type=float, help="Learning rate weight decay", default=2e-4)
     parser.add_argument('--checkpoint_path', type=str, help="Relative path of saved checkpoint from --out_dir")
     parser.add_argument('--checkpoint_freq', type=int, help="How many epochs between saving checkpoint. -1: don't save checkpoints", default=-1)
-    parser.add_argument('--use_improvements', type=bool, help="Whether to use the model improvements", default=False)
+    parser.add_argument('--using_windows', type=bool, help='Whether the script is being executed on a Windows machine (default=False)', default=False)
     args = parser.parse_args()
     
     data_dir = args.data_dir
@@ -387,8 +413,7 @@ if __name__ == '__main__':
     learning_rate = args.learning_rate
     start_momentum = args.start_momentum
     end_momentum = args.end_momentum
-    momentum_delta = (end_momentum - start_momentum) / total_epochs # linear momentum increase
-    weight_decay = args.conv_weight_decay
+    weight_decay = args.lr_weight_decay
 
     # Checkpoint path
     checkpoint_dir = args.checkpoint_path
@@ -398,9 +423,10 @@ if __name__ == '__main__':
 
     # Initialise gpus
     world_size = args.num_gpus 
-    mp.spawn(
-        train,
-        args=(world_size,
+    using_windows = args.using_windows
+
+    if using_windows or world_size == 1:
+        train(0, 1,
               data_dir,
               out_dir,
               use_val,
@@ -410,11 +436,27 @@ if __name__ == '__main__':
               learning_rate,
               start_momentum,
               end_momentum,
-              momentum_delta,
               weight_decay,
               checkpoint_dir,
               checkpoint_freq,
-              use_improvements),
-        nprocs=world_size)
+              True)
+    else:
+        mp.spawn(
+            train,
+            args=(world_size,
+                  data_dir,
+                  out_dir,
+                  use_val,
+                  total_epochs,
+                  start_epoch,
+                  batch_size,
+                  learning_rate,
+                  start_momentum,
+                  end_momentum,
+                  weight_decay,
+                  checkpoint_dir,
+                  checkpoint_freq,
+                  False),
+            nprocs=world_size)
     
     
