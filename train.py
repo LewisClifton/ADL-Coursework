@@ -55,19 +55,19 @@ def apply_conv_weight_constraint(model, weight_constraint=0.1):
             norm_condition = (norm > weight_constraint).expand_as(conv.weight.data)
             conv.weight.data[norm_condition] /= (norm + 1e-8).expand_as(conv.weight.data)[norm_condition]
 
-def increase_momentum_linear(optimizer, start_momentum, momentum_delta, epoch):
-    optimizer.param_groups[0]['momentum'] = start_momentum + epoch * momentum_delta
+def increase_momentum_linear(optimizer, start_momentum, momentum_delta, iteration):
+    optimizer.param_groups[0]['momentum'] = start_momentum + iteration * momentum_delta
 
-def train_epoch(model, train_loader, optimizer, criterion, device):
+def train_epoch(model, train_loader, optimizer, criterion, momentum_delta, epoch, device):
     # Set the model to training mode
     model.train()  
 
-    running_loss = 0.0
+    running_loss = 0.0  
     correct_predictions = 0
     total_samples = 0
 
     # Iterate over the training data
-    for (inputs, labels) in train_loader:    
+    for iteration, (inputs, labels) in enumerate(train_loader):    
         
         # Get the different resolutions for each image in the batch (shape=[batch_size, 3, 42, 42])
         x1 = inputs[:, 0, :, :, :].to(device) # 400x400
@@ -100,6 +100,14 @@ def train_epoch(model, train_loader, optimizer, criterion, device):
         # Calculate number of correct predictions
         correct_predictions += (predicted.squeeze() == labels).sum().item()
         total_samples += labels.size(0)
+
+
+        # Linearly increase momentum to end momentum
+        iterations_elapsed = epoch * len(train_loader) + iteration
+        increase_momentum_linear(optimizer, start_momentum, momentum_delta, iterations_elapsed)
+        
+        # Apply weight constraint to the first conv layer in the network
+        apply_conv_weight_constraint(model)
 
     # # Calculate the average loss and accuracy for the current epoch
     avg_loss = running_loss / len(train_loader)
@@ -184,7 +192,6 @@ def train(rank,
           learning_rate,
           start_momentum,
           end_momentum,
-          momentum_delta,
           weight_decay,
           checkpoint_dir,
           checkpoint_freq):
@@ -232,6 +239,10 @@ def train(rank,
         "Average val auc per train epoch" : [] 
     }
 
+    # Get the amount to increase the momentum by each iteration
+    total_iterations = len(train_loader) * total_epochs
+    momentum_delta = (end_momentum - start_momentum) / total_iterations # linear momentum increase
+
     train_start_time = time.time()
 
     # Training Loop
@@ -242,7 +253,7 @@ def train(rank,
         epoch_start_time = time.time()
         
         # Performing single train epoch and get train metrics
-        avg_train_loss, train_accuracy = train_epoch(model, train_loader, optimizer, criterion, device=rank)
+        avg_train_loss, train_accuracy = train_epoch(model, train_loader, optimizer, criterion, momentum_delta, epoch, device=rank)
 
         train_metrics["Average BCE loss per train epoch"].append(round(avg_train_loss, 2))
         train_metrics["Average accuracy per train epoch"].append(round(train_accuracy, 2))
@@ -260,12 +271,6 @@ def train(rank,
             epoch_time = time.strftime("%H:%M:%S", time.gmtime((time.time() - epoch_start_time)))
             if rank == 0:
                 print(f"Epoch [{epoch+1}/{total_epochs}] (time: {epoch_time}), Train BCE loss: {avg_train_loss:.4f}, Train accuracy: {train_accuracy:.2f}")
-
-        # Linearly increase momentum to end momentum
-        increase_momentum_linear(optimizer, start_momentum, momentum_delta, epoch)
-        
-        # Apply weight constraint to the first conv layer in the network
-        apply_conv_weight_constraint(model)
 
         # Save checkpoint
         if rank == 0:
@@ -341,9 +346,9 @@ if __name__ == '__main__':
 
     # Command line args
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_dir', type=str, help="Path to directory for dataset", required=True)
+    parser.add_argument('--data_dir', type=str, help="Path to directory for dataset containing *_data.pth.tar", required=True)
     parser.add_argument('--out_dir', type=str, help="Path to directory for saving model/log", required=True)
-    parser.add_argument('--epochs', type=int, help="Number of epochs to train with", default=5)
+    parser.add_argument('--epochs', type=int, help="Number of epochs to train with", default=20)
     parser.add_argument('--num_gpus', type=int, help="Number of gpus to train with", default=2)
     parser.add_argument('--use_val', type=bool, help='Track validation metrics during training', default=False)
     parser.add_argument('--batch_size', type=int, help="Minibatch size", default=256)
@@ -366,7 +371,6 @@ if __name__ == '__main__':
     learning_rate = args.learning_rate
     start_momentum = args.start_momentum
     end_momentum = args.end_momentum
-    momentum_delta = (end_momentum - start_momentum) / total_epochs # linear momentum increase
     weight_decay = args.lr_weight_decay
 
     # Checkpoint path
@@ -387,7 +391,6 @@ if __name__ == '__main__':
               learning_rate,
               start_momentum,
               end_momentum,
-              momentum_delta,
               weight_decay,
               checkpoint_dir,
               checkpoint_freq),
