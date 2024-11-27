@@ -18,7 +18,7 @@ The scripts in this repo assumes it is being run using Blue Crystal 4.
    python train.py --data_dir <DATA_DIR> --out_dir <OUT_DIR>
    ```
 
-   Replace <DATA_DIR> with the path to the directory containing test_data.pth.tar and <OUT_DIR> with the path to the directory where you want the trained model and log to be saved.
+   Replace <DATA_DIR> with the path to the directory containing the *.pth.tar dataset files as well as the ALLFIXATIONMAPS folder provided in the dataset (if needing evaluation metrics during training) and <OUT_DIR> with the path to the directory where you want the trained model and log to be saved.
 
 3. Run using SLURM:
    ```

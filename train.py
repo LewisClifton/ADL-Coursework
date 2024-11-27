@@ -238,9 +238,6 @@ def train(rank,
             print("Loading from checkpoint")
         model, optimizer, start_epoch = load_checkpoint(model, optimizer, checkpoint_dir)
 
-    if rank == 0:
-        print(f'Starting training (Epoch {start_epoch+1}/{total_epochs})')
-
     train_metrics = {
         "Average BCE loss per train epoch" : [],
         "Average accuracy per train epoch" : [],
@@ -250,6 +247,9 @@ def train(rank,
     # Get the amount to increase the momentum by each iteration
     total_iterations = len(train_loader) * total_epochs
     momentum_delta = (end_momentum - start_momentum) / total_iterations # linear momentum increase
+
+    if rank == 0:
+        print(f'Starting training for {total_iterations} ({total_epochs } epochs)')
 
     train_start_time = time.time()
 
