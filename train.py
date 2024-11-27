@@ -22,31 +22,6 @@ from utils import *
 # Set up cuda
 torch.backends.cudnn.enabled = True
 
-# Load model checkpoint
-def load_checkpoint(model, optimizer, checkpoint_path):
-    
-    checkpoint = torch.load(checkpoint_path, weights_only=True)
-
-    model_dict = OrderedDict()
-    pattern = re.compile('module.')
-    for k,v in checkpoint['model_state_dict'].items():
-        if re.search("module", k):
-            model_dict[re.sub(pattern, '', k)] = v
-        else:
-            model_dict = checkpoint['model_state_dict']
-
-    model.load_state_dict(model_dict)
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    start_epoch = checkpoint['epoch']
-
-    return model, optimizer, start_epoch
-
-# Save model checkpoint
-def save_checkpoint(model, optimizer, epoch, checkpoint_dir):
-    torch.save({'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'epoch': epoch},
-                f"{checkpoint_dir}/{datetime.now().strftime("%Y_%m_%d_%p%I_%M")}.pth")
 
 def apply_conv_weight_constraint(model, using_windows, world_size, weight_constraint=0.1):
     with torch.no_grad():
@@ -198,8 +173,6 @@ def train(rank,
           start_momentum,
           end_momentum,
           weight_decay,
-          checkpoint_dir,
-          checkpoint_freq,
           using_windows):
 
     # setup the process groups if necessary
@@ -231,12 +204,6 @@ def train(rank,
 
     # Initialise SGD optimiser
     optimizer = optim.SGD(model.parameters(), lr=learning_rate, momentum=start_momentum, weight_decay=weight_decay)
-
-    # Load from checkpoints if required
-    if checkpoint_dir:
-        if rank == 0:
-            print("Loading from checkpoint")
-        model, optimizer, start_epoch = load_checkpoint(model, optimizer, checkpoint_dir)
 
     train_metrics = {
         "Average BCE loss per train epoch" : [],
@@ -279,12 +246,6 @@ def train(rank,
             epoch_time = time.strftime("%H:%M:%S", time.gmtime((time.time() - epoch_start_time)))
             if rank == 0:
                 print(f"Epoch [{epoch+1}/{total_epochs}] (time: {epoch_time}), Train BCE loss: {avg_train_loss:.4f}, Train accuracy: {train_accuracy:.2f}")
-
-        # Save checkpoint
-        if rank == 0:
-            if checkpoint_freq != -1:
-                if epoch % checkpoint_freq == 0:
-                    save_checkpoint(model, optimizer, epoch, checkpoint_dir)
 
     # Get runtime
     train_metrics['Train runtime'] = time.time() - train_start_time
@@ -393,8 +354,6 @@ if __name__ == '__main__':
     parser.add_argument('--start_momentum', type=float, help="Optimiser start momentum", default=0.9)
     parser.add_argument('--end_momentum', type=float, help="Optimiser end momentum", default=0.99)
     parser.add_argument('--lr_weight_decay', type=float, help="Learning rate weight decay", default=2e-4)
-    parser.add_argument('--checkpoint_path', type=str, help="Relative path of saved checkpoint from --out_dir")
-    parser.add_argument('--checkpoint_freq', type=int, help="How many epochs between saving checkpoint. -1: don't save checkpoints", default=-1)
     parser.add_argument('--using_windows', type=bool, help='Whether the script is being executed on a Windows machine (default=False)', default=False)
     args = parser.parse_args()
     
@@ -410,10 +369,6 @@ if __name__ == '__main__':
     start_momentum = args.start_momentum
     end_momentum = args.end_momentum
     weight_decay = args.lr_weight_decay
-
-    # Checkpoint path
-    checkpoint_dir = args.checkpoint_path
-    checkpoint_freq = args.checkpoint_freq # every checkpoint_freq epochs, save model checkpoint
 
     # Initialise gpus
     world_size = args.num_gpus 
@@ -431,8 +386,6 @@ if __name__ == '__main__':
               start_momentum,
               end_momentum,
               weight_decay,
-              checkpoint_dir,
-              checkpoint_freq,
               True)
     else:
         mp.spawn(
@@ -448,8 +401,6 @@ if __name__ == '__main__':
                   start_momentum,
                   end_momentum,
                   weight_decay,
-                  checkpoint_dir,
-                  checkpoint_freq,
                   False),
             nprocs=world_size)
     
