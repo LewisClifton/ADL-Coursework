@@ -113,7 +113,7 @@ def main(data_dir,
          batch_size):
 
     # Get train and validation data
-    print('Loading datasets...')
+    print('Loading dataset...')
     test_data = MIT(dataset_path=os.path.join(data_dir, "test_data.pth.tar"))
     print('Test dataset loaded.')
 
