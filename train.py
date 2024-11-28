@@ -289,8 +289,8 @@ def train(rank,
 
     # Output directory
     out_dir = os.path.join(out_dir, f'trained/{datetime.now().strftime("%Y_%m_%d_%p%I_%M")}')
-    if not os.path.exists(out_dir):
-        os.makedirs(out_dir)
+    if verbose:
+        os.makedirs(out_dir, exist_ok=True)
 
     # Create the model
     model = MrCNN().to(rank)
