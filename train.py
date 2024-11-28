@@ -1,5 +1,3 @@
-import re
-from typing import OrderedDict
 import torch
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -257,7 +255,7 @@ def train(rank,
         epoch_start_time = time.time()
         
         # Performing single train epoch and get train metrics
-        avg_train_loss, train_accuracy = train_epoch(model, train_loader, optimizer, criterion, momentum_delta, conv1_weight_constraint, using_windows, world_size, device=rank)
+        avg_train_loss, train_accuracy = train_epoch(model, train_loader, optimizer, criterion, momentum_delta, using_windows, world_size, conv1_weight_constraint=conv1_weight_constraint,, device=rank)
 
         train_metrics["Average BCE loss per train epoch"].append(round(avg_train_loss, 2))
         train_metrics["Average accuracy per train epoch"].append(round(train_accuracy, 2))
