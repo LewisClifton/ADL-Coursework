@@ -208,7 +208,7 @@ def save(model, out_dir, train_metrics, momentum_delta, train_start_time, epoch,
                 os.makedirs(out_dir)
 
             # Save trained model
-            model_path = os.path.join(out_dir, f'cnn_epoch_{epoch}.pth')
+            model_path = os.path.join(out_dir, f'cnn_epoch_{epoch+1}.pth')
             torch.save(model.state_dict(), model_path)
             print(f'Model saved to {model_path}.')
 
@@ -236,7 +236,7 @@ def save(model, out_dir, train_metrics, momentum_delta, train_start_time, epoch,
                 os.makedirs(out_dir)
 
             # Save trained model
-            model_path = os.path.join(out_dir, f'cnn_epoch_{epoch}.pth')
+            model_path = os.path.join(out_dir, f'cnn_epoch_{epoch+1}.pth')
             torch.save(model.state_dict(), model_path)
             print(f'Model saved to {model_path}.')
 
