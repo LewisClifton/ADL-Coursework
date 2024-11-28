@@ -158,7 +158,7 @@ def main(data_dir,
     # Save metrics
     save_log(out_dir, date, **{**final_test_metrics})
 
-    if num_saved_images > 0:
+    if num_saved_images > 0 and num_saved_images != -1:
         print(f'Saved {num_saved_images} generated saliency images to {image_dir}.')
 
 
