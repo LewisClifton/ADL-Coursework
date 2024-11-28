@@ -190,7 +190,8 @@ def train(rank,
     if verbose: 
         print('Loading datasets...')
     train_data = MIT(dataset_path=os.path.join(data_dir, "train_data.pth.tar"))
-    val_data = MIT(dataset_path=os.path.join(data_dir, "val_data.pth.tar"))
+    if use_val:
+        val_data = MIT(dataset_path=os.path.join(data_dir, "val_data.pth.tar"))
     if verbose:
         print("Loaded datasets.")
 
