@@ -375,8 +375,8 @@ if __name__ == '__main__':
     parser.add_argument('--lr_weight_decay', type=float, help="Learning rate weight decay", default=2e-4)
     parser.add_argument('--using_windows', type=bool, help='Whether the script is being executed on a Windows machine (default=False)', default=False)
     parser.add_argument('--improvements', type=int, help='If to use improvements and what improvements to use. 0: none, 1: adam optimizer', default=0)
-    parser.add_argument('--beta1', type=type, help='Beta1 if using improvements (with --improvements flag) which use Adam optimizer (default=0.9)', default=0.9)
-    parser.add_argument('--beta2', type=type, help='Beta2 if using improvements (with --improvements flag) which use Adam optimizer (default=0.999)', default=0.999)
+    parser.add_argument('--beta1', type=float, help='Beta1 if using improvements (with --improvements flag) which use Adam optimizer (default=0.9)', default=0.9)
+    parser.add_argument('--beta2', type=float, help='Beta2 if using improvements (with --improvements flag) which use Adam optimizer (default=0.999)', default=0.999)
     args = parser.parse_args()
     
     data_dir = args.data_dir
