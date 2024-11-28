@@ -1,5 +1,4 @@
 import re
-from typing import OrderedDict
 import torch
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -23,16 +22,16 @@ torch.backends.cudnn.enabled = True
 # Load model
 def load_model(model, model_path):
     
+    # Load the model state dictionary
     model_state_dict = torch.load(model_path, weights_only=True)
 
-    model_dict = OrderedDict()
-    pattern = re.compile('module.')
-    for k,v in model_state_dict.items():
-        if re.search("module", k):
-            model_dict[re.sub(pattern, '', k)] = v
-        else:
-            model_dict = model_state_dict
+    # Go through all the layer names and remove module which is written when saving a DDP model
+    model_dict = {}
+    for layer_name, layer_shape in model_state_dict.items():
+        layer_name = layer_name.replace("module.", "")
+        model_dict[layer_name] = layer_shape
 
+    # Apply to intialise model
     model.load_state_dict(model_dict)
 
     return model
@@ -118,10 +117,12 @@ def main(rank,
           out_dir,
           model_path,
           batch_size,
-          num_saved_images):
+          num_saved_images,
+          using_windows):
 
-    # setup the process groups
-    setup_gpus(rank, world_size)
+    if not using_windows and world_size > 1:
+        # setup the process groups
+        setup_gpus(rank, world_size)
 
     # Get train and validation data
     test_data = MIT(dataset_path=os.path.join(data_dir, "test_data.pth.tar"))
@@ -136,8 +137,9 @@ def main(rank,
     model = MrCNN().to(rank)
     model = load_model(model, model_path)
     
-    # Wrap model with DDP
-    model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=False)
+    if not using_windows and world_size > 1:
+        # Wrap model with DDP
+        model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=False)
 
     # Output directory
     date = datetime.now()
@@ -159,43 +161,53 @@ def main(rank,
     # Get runtime
     runtime = time.time() - eval_start_time
 
-    # Wait for all the GPUs to finish evaluating
-    dist.barrier()
+    if not using_windows and world_size > 1:
+        # Wait for all the GPUs to finish evaluating
+        dist.barrier()
 
-    # Send all the gpu node metrics back to the main gpu
-    test_metrics = {
-        'Average test AUC' : test_avg_auc,
-        'Test runtime' : runtime,
-    }
-    torch.cuda.set_device(rank)
-    test_metrics_gpus = [None for _ in range(world_size)]
-    dist.all_gather_object(test_metrics_gpus, test_metrics)
-
-    if rank == 0:
-
-        # Calculate average AUC over all the GPUs
-        test_avg_aucs = [gpu_metrics['Average test AUC'] for gpu_metrics in test_metrics_gpus]
-        test_avg_auc = np.mean(np.vstack(test_avg_aucs), axis=0)
-
-        # Get runtime
-        runtime = np.max([gpu_metrics['Test runtime'] for gpu_metrics in test_metrics_gpus])
-        runtime = time.strftime("%H:%M:%S", time.gmtime(runtime))
-
-        final_test_metrics = {
-            'Model path' : model_path,
+        # Send all the gpu node metrics back to the main gpu
+        test_metrics = {
             'Average test AUC' : test_avg_auc,
             'Test runtime' : runtime,
         }
+        torch.cuda.set_device(rank)
+        test_metrics_gpus = [None for _ in range(world_size)]
+        dist.all_gather_object(test_metrics_gpus, test_metrics)
+
+        if rank == 0:
+
+            # Calculate average AUC over all the GPUs
+            test_avg_aucs = [gpu_metrics['Average test AUC'] for gpu_metrics in test_metrics_gpus]
+            test_avg_auc = np.mean(np.vstack(test_avg_aucs), axis=0)
+
+            # Get runtime
+            runtime = np.max([gpu_metrics['Test runtime'] for gpu_metrics in test_metrics_gpus])
+            runtime = time.strftime("%H:%M:%S", time.gmtime(runtime))
+
+            final_test_metrics = {
+                'Model path' : model_path,
+                'Average test AUC' : test_avg_auc,
+                'Test runtime' : runtime,
+            }
+
+            # Save metrics
+            save_log(out_dir, date, **{**final_test_metrics})
+
+            if num_saved_images > 0:
+                print(f'Saved {num_saved_images} to {image_dir}.')
+
+        if dist.is_initialized():
+            dist.destroy_process_group()
+
+    else: 
+
+        final_test_metrics['Test runtime'] = time.strftime("%H:%M:%S", time.gmtime(runtime))
 
         # Save metrics
         save_log(out_dir, date, **{**final_test_metrics})
 
         if num_saved_images > 0:
             print(f'Saved {num_saved_images} to {image_dir}.')
-
-    if dist.is_initialized():
-        dist.destroy_process_group()
-
 
 if __name__ == '__main__':
 
@@ -207,6 +219,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, help="Data loader batch size", default=256)
     parser.add_argument('--num_gpus', type=int, help="Number of gpus to train with", default=1)
     parser.add_argument('--num_saved_images', type=int, help="Number of comparison images to save", default=0)
+    parser.add_argument('--using_windows', type=bool, help='Whether the script is being executed on a Windows machine (default=False)', default=False)
     args = parser.parse_args()
     
     data_dir = args.data_dir
@@ -217,6 +230,8 @@ if __name__ == '__main__':
 
     # Initialise gpus
     world_size = args.num_gpus 
+    using_windows = args.using_windows
+    
     mp.spawn(
         main,
         args=(world_size,
@@ -224,7 +239,8 @@ if __name__ == '__main__':
               out_dir,
               model_path,
               batch_size,
-              num_saved_images),
+              num_saved_images,
+              using_windows),
         nprocs=world_size)
     
     
