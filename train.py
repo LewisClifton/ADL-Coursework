@@ -181,6 +181,8 @@ def train(rank,
         setup_gpus(rank, world_size)
 
     # Get train and validation data
+    if rank == 0: 
+        print('Loading datasets...')
     train_data = MIT(dataset_path=os.path.join(data_dir, "train_data.pth.tar"))
     val_data = MIT(dataset_path=os.path.join(data_dir, "val_data.pth.tar"))
     if rank == 0:
