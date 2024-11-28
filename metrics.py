@@ -9,14 +9,9 @@ def roc_auc(pred, target, n_points=20, include_prior=False):
         """
 
         target = np.array(target)/255        
-        generated = np.array(pred)
+        generated = pred
         # min max normalisation
-        max_ = generated.max()
-        min_ = generated.min()
-        if max_ != min_:
-            generated = (generated - min_)/(max_ - min_)
-        else:
-            generated = np.zeros_like(generated)
+        generated = (generated - generated.min())/(generated.max() - generated.min())
 
         def roc(p=0.1):
             x = generated.reshape(-1) > p
