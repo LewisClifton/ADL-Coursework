@@ -320,8 +320,8 @@ def train(rank,
             # Log this epoch's validation metrics
             train_metrics['Average val auc per train epoch'].append(round(avg_val_auc, 2))
 
-            # Handle early stopping if required and if on the main gpu
-            if early_stopping_patience != -1 and verbose:  
+            # Handle early stopping if required and if on the main gpu and don't bother for the first 30 epochs
+            if early_stopping_patience != -1 and verbose and epoch > 30:  
 
                 if best_avg_val_auc < avg_val_auc:
                     # If current validation score is better then save the model and the log  
