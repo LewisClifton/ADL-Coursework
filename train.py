@@ -31,7 +31,6 @@ def apply_conv_weight_constraint(model, using_windows, world_size, weight_constr
         else:
             convs = [model.stream1.conv1, model.stream2.conv1, model.stream3.conv1]
             
-            
         for conv in convs:
             norm = torch.linalg.norm(conv.weight, ord=2, dim=(2,3), keepdim=True)
             norm_condition = (norm > weight_constraint).expand_as(conv.weight.data)
@@ -178,24 +177,28 @@ def train(rank,
           weight_decay,
           betas,
           using_windows):
+    
+    
+    using_multi_gpu = not using_windows and world_size > 1 # multi-gpu not supported on Windows
+    verbose = ((rank == 0) or (not using_multi_gpu)) # show prints if on main gpu or if using single gpu
 
     # setup the process groups if necessary
-    if not using_windows and world_size > 1:
+    if using_multi_gpu:
         setup_gpus(rank, world_size)
 
     # Get train and validation data
-    if rank == 0 or world_size == 1: 
+    if verbose: 
         print('Loading datasets...')
     train_data = MIT(dataset_path=os.path.join(data_dir, "train_data.pth.tar"))
     val_data = MIT(dataset_path=os.path.join(data_dir, "val_data.pth.tar"))
-    if rank == 0 or world_size == 1:
+    if verbose:
         print("Loaded datasets.")
 
     # Ground truth directory
     GT_fixations_dir = os.path.join(data_dir, "ALLFIXATIONMAPS")
 
     # Create data loaders
-    if not using_windows and world_size > 1:
+    if using_multi_gpu:
         train_loader = get_data_loader(train_data, rank, world_size, batch_size=batch_size)
         val_loader = get_data_loader(val_data, rank, world_size, batch_size=batch_size)
     else:
@@ -206,8 +209,8 @@ def train(rank,
     # Create the model
     model = MrCNN().to(rank)
 
-    # Wrap model with DDP
-    if world_size > 1:
+    # Wrap model with DDP if necessary
+    if using_multi_gpu:
         model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=False)
 
     # Use cross entropy loss as stated in the reference paper
@@ -229,7 +232,7 @@ def train(rank,
     total_iterations = len(train_loader) * total_epochs
     momentum_delta = (end_momentum - start_momentum) / total_iterations # linear momentum increase
 
-    if rank == 0:
+    if verbose:
         print(f'Starting training for {total_iterations} ({total_epochs } epochs)')
 
     train_start_time = time.time()
@@ -252,19 +255,19 @@ def train(rank,
             avg_val_auc = val_epoch(model, val_loader, val_data, GT_fixations_dir, device=rank)
 
             epoch_time = time.strftime("%H:%M:%S", time.gmtime((time.time() - epoch_start_time)))
-            if rank == 0:
+            if verbose:
                 print(f"Epoch [{epoch+1}/{total_epochs}] (time: {epoch_time}), Train BCE loss: {avg_train_loss:.4f}, Train accuracy: {train_accuracy:.2f}, Validaton mean auc: {avg_val_auc}")
 
             train_metrics['Average val auc per train epoch'].append(round(avg_val_auc, 2))
         else:
             epoch_time = time.strftime("%H:%M:%S", time.gmtime((time.time() - epoch_start_time)))
-            if rank == 0:
+            if verbose:
                 print(f"Epoch [{epoch+1}/{total_epochs}] (time: {epoch_time}), Train BCE loss: {avg_train_loss:.4f}, Train accuracy: {train_accuracy:.2f}")
 
     # Get runtime
     train_metrics['Train runtime'] = time.time() - train_start_time
 
-    if not using_windows and world_size > 1:
+    if using_multi_gpu:
         dist.barrier()
 
         # Send all the gpu node metrics back to the main gpu
@@ -272,7 +275,7 @@ def train(rank,
         train_metrics_gpus = [None for _ in range(world_size)]
         dist.all_gather_object(train_metrics_gpus, train_metrics)
 
-        if rank == 0:
+        if rank == 0: # if main gpu
             print('Done training')
 
             # Get runtime
@@ -325,6 +328,7 @@ def train(rank,
             dist.destroy_process_group()
 
     else: # using single gpu
+            
         # Final train metric for the log
             train_metrics["Train runtime"] = time.strftime("%H:%M:%S", time.gmtime(train_metrics["Train runtime"]))
 
