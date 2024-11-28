@@ -110,7 +110,7 @@ def evaluate(model, test_loader, test_data, GT_fixations_dir, image_dir, num_sav
 def main(data_dir,
          out_dir,
          model_path,
-         batch_size):
+         num_saved_images):
 
     # Get train and validation data
     print('Loading dataset...')
@@ -121,7 +121,7 @@ def main(data_dir,
     GT_fixations_dir = os.path.join(data_dir, "ALLFIXATIONMAPS")
 
     # Create data loaders
-    test_loader = DataLoader(test_data, batch_size=batch_size)
+    test_loader = DataLoader(test_data, batch_size=256)
 
     # Load the trained model
     model = MrCNN().to(device)
