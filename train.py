@@ -179,11 +179,11 @@ def train(rank,
           using_windows):
     
     
-    using_multi_gpu = not using_windows and world_size > 1 # multi-gpu not supported on Windows
-    verbose = ((rank == 0) or (not using_multi_gpu)) # show prints if on main gpu or if using single gpu
+    multi_gpu = not using_windows and world_size > 1 # multi-gpu not supported on Windows
+    verbose = ((rank == 0) or (not multi_gpu)) # show prints if on main gpu or if using single gpu
 
     # setup the process groups if necessary
-    if using_multi_gpu:
+    if multi_gpu:
         setup_gpus(rank, world_size)
 
     # Get train and validation data
@@ -198,7 +198,7 @@ def train(rank,
     GT_fixations_dir = os.path.join(data_dir, "ALLFIXATIONMAPS")
 
     # Create data loaders
-    if using_multi_gpu:
+    if multi_gpu:
         train_loader = get_data_loader(train_data, rank, world_size, batch_size=batch_size)
         val_loader = get_data_loader(val_data, rank, world_size, batch_size=batch_size)
     else:
@@ -210,7 +210,7 @@ def train(rank,
     model = MrCNN().to(rank)
 
     # Wrap model with DDP if necessary
-    if using_multi_gpu:
+    if multi_gpu:
         model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=False)
 
     # Use cross entropy loss as stated in the reference paper
@@ -239,8 +239,9 @@ def train(rank,
 
     # Training Loop
     for epoch in range(start_epoch, total_epochs):
-        train_loader.sampler.set_epoch(epoch)
-        val_loader.sampler.set_epoch(epoch) 
+        if multi_gpu:
+            train_loader.sampler.set_epoch(epoch)
+            val_loader.sampler.set_epoch(epoch) 
 
         epoch_start_time = time.time()
         
@@ -267,7 +268,7 @@ def train(rank,
     # Get runtime
     train_metrics['Train runtime'] = time.time() - train_start_time
 
-    if using_multi_gpu:
+    if multi_gpu:
         dist.barrier()
 
         # Send all the gpu node metrics back to the main gpu
