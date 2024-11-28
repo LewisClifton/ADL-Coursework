@@ -84,8 +84,9 @@ def train_epoch(model, train_loader, optimizer, criterion, momentum_delta, using
         total_samples += labels.size(0)
 
 
-        # Linearly increase momentum to end momentum
-        increase_momentum(optimizer, momentum_delta)
+        # Linearly increase momentum to end momentum if using SGD
+        if optimizer.__class__.__name__ == 'SGD':
+            increase_momentum(optimizer, momentum_delta)
         
         # Apply weight constraint to the first conv layer in the network
         apply_conv_weight_constraint(model, using_windows=using_windows, world_size=world_size)
@@ -170,10 +171,12 @@ def train(rank,
           total_epochs,
           start_epoch,
           batch_size,
+          optimizer_type,
           learning_rate,
           start_momentum,
           end_momentum,
           weight_decay,
+          betas,
           using_windows):
 
     # setup the process groups if necessary
@@ -196,11 +199,8 @@ def train(rank,
     val_loader = get_data_loader(val_data, rank, world_size, batch_size=batch_size)
 
     # Create the model
-    if use_improvements:
-        model = MrCNN().to(rank)
-    else:
-        model = ImprovedMrCNN().to(rank)
-    
+    model = MrCNN().to(rank)
+
     # Wrap model with DDP
     if world_size > 1:
         model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=False)
@@ -209,7 +209,10 @@ def train(rank,
     criterion = nn.BCELoss().to(rank)
 
     # Initialise SGD optimiser
-    optimizer = optim.SGD(model.parameters(), lr=learning_rate, momentum=start_momentum, weight_decay=weight_decay)
+    if optimizer_type == 'Adam':
+        optimizer = optim.Adam(model.parameters(), betas=betas, lr=learning_rate, weight_decay=weight_decay)
+    else:
+        optimizer = optim.SGD(model.parameters(), lr=learning_rate, momentum=start_momentum, weight_decay=weight_decay)
 
     train_metrics = {
         "Average BCE loss per train epoch" : [],
@@ -361,6 +364,8 @@ if __name__ == '__main__':
     parser.add_argument('--end_momentum', type=float, help="Optimiser end momentum", default=0.99)
     parser.add_argument('--lr_weight_decay', type=float, help="Learning rate weight decay", default=2e-4)
     parser.add_argument('--using_windows', type=bool, help='Whether the script is being executed on a Windows machine (default=False)', default=False)
+    parser.add_argument('--improvements', type=int, help='If to use improvements and what improvements to use. 0: none, 1: adam optimizer', default=0)
+    parser.add_argument('--betas', type=type, help='Tuple of betas if using improvements (with --improvements flag) which use Adam optimizer (default=(0.9, 0.999))', default=(0.9, 0.999))
     args = parser.parse_args()
     
     data_dir = args.data_dir
@@ -376,6 +381,14 @@ if __name__ == '__main__':
     end_momentum = args.end_momentum
     weight_decay = args.lr_weight_decay
 
+    # Get improvements
+    improvements = args.improvements
+    betas = args.betas
+    optimizer_type = 'SGDm' # SGD with momentum
+    if improvements == 1:
+        optimizer_type = 'Adam' 
+
+
     # Initialise gpus
     world_size = args.num_gpus 
     using_windows = args.using_windows
@@ -388,11 +401,13 @@ if __name__ == '__main__':
               total_epochs,
               start_epoch,
               batch_size,
+              optimizer_type,
               learning_rate,
               start_momentum,
               end_momentum,
               weight_decay,
-              True)
+              betas,
+              True) # using windows
     else:
         mp.spawn(
             train,
@@ -403,11 +418,13 @@ if __name__ == '__main__':
                   total_epochs,
                   start_epoch,
                   batch_size,
+                  optimizer_type,
                   learning_rate,
                   start_momentum,
                   end_momentum,
                   weight_decay,
-                  False),
+                  betas,
+                  False), # using windows
             nprocs=world_size)
     
     
