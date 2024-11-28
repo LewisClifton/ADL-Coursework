@@ -88,9 +88,8 @@ def train_epoch(model, train_loader, optimizer, criterion, momentum_delta, conv1
         correct_predictions += (predicted.squeeze() == labels).sum().item()
         total_samples += labels.size(0)
 
-        # Linearly increase momentum to end momentum if using SGD
-        if optimizer.__class__.__name__ == 'SGD':
-            increase_momentum(optimizer, momentum_delta)
+        # Linearly increase momentum to end momentum
+        increase_momentum(optimizer, momentum_delta)
         
         # Apply weight constraint to the first conv layer in the network
         apply_conv1_weight_constraint(model, weight_constraint=conv1_weight_constraint, using_windows=using_windows, world_size=world_size)
@@ -166,6 +165,93 @@ def val_epoch(model, val_loader, val_data, GT_fixations_dir, device):
 
         return avg_auc
 
+def save(model, out_dir, train_metrics, momentum_delta, train_start_time, epoch, multi_gpu, device, world_size):
+    # Get runtime
+    train_metrics['Train runtime'] = time.time() - train_start_time
+
+    if multi_gpu:
+        dist.barrier()
+
+        # Send all the gpu node metrics back to the main gpu
+        torch.cuda.set_device(device)
+        train_metrics_gpus = [None for _ in range(world_size)]
+        dist.all_gather_object(train_metrics_gpus, train_metrics)
+
+        if device == 0: # if main gpu
+
+            # Get runtime
+            runtime = np.max([gpu_metrics['Train runtime'] for gpu_metrics in train_metrics_gpus])
+            runtime = time.strftime("%H:%M:%S", time.gmtime(runtime))
+
+            # Split the metrics from train_metrics_gpus
+            bce_losses = [gpu_metrics["Average BCE loss per train epoch"] for gpu_metrics in train_metrics_gpus]
+            avg_accs = [gpu_metrics["Average accuracy per train epoch"] for gpu_metrics in train_metrics_gpus]
+            avg_val_aucs = [gpu_metrics["Average val auc per train epoch"] for gpu_metrics in train_metrics_gpus]
+
+            # Stack the metrics and calculate mean across GPUs for each epoch
+            bce_losses = np.mean(np.vstack(bce_losses), axis=0)
+            avg_accs = np.mean(np.vstack(avg_accs), axis=0)
+            avg_val_aucs = np.mean(np.vstack(avg_val_aucs), axis=0)
+
+            # Final train metric for the log
+            final_train_metrics = {
+                "Train runtime" : runtime,
+                "Average BCE loss per train epoch": bce_losses.tolist(),
+                "Average accuracy per train epoch": avg_accs.tolist(),
+                "Average val auc per train epoch": avg_val_aucs.tolist(),
+            }
+
+            # Output directory
+            date = datetime.now()
+            out_dir = os.path.join(out_dir, f'trained/{date.strftime("%Y_%m_%d_%p%I_%M")}')
+            if not os.path.exists(out_dir):
+                os.makedirs(out_dir)
+
+            # Save trained model
+            model_path = os.path.join(out_dir, f'cnn_epoch_{epoch}.pth')
+            torch.save(model.state_dict(), model_path)
+            print(f'Model saved to {model_path}.')
+
+            # Write log about model and training performance
+            hyperparameters = {
+                'total_epochs' : epoch,
+                'batch_size' : batch_size,
+                'learning_rate' : learning_rate,
+                'start_momentum' : start_momentum,
+                'end_momentum' : end_momentum,
+                'momentum_delta' : momentum_delta,
+                'lr_weight_decay' : weight_decay,
+            }
+            save_log(out_dir, date, **{**final_train_metrics, **hyperparameters})
+
+    else: # using single gpu
+            
+        # Final train metric for the log
+            train_metrics["Train runtime"] = time.strftime("%H:%M:%S", time.gmtime(train_metrics["Train runtime"]))
+
+            # Output directory
+            date = datetime.now()
+            out_dir = os.path.join(out_dir, f'trained/{date.strftime("%Y_%m_%d_%p%I_%M")}')
+            if not os.path.exists(out_dir):
+                os.makedirs(out_dir)
+
+            # Save trained model
+            model_path = os.path.join(out_dir, f'cnn_epoch_{epoch}.pth')
+            torch.save(model.state_dict(), model_path)
+            print(f'Model saved to {model_path}.')
+
+            # Write log about model and training performance
+            hyperparameters = {
+                'total_epochs' : epoch,
+                'batch_size' : batch_size,
+                'learning_rate' : learning_rate,
+                'start_momentum' : start_momentum,
+                'end_momentum' : end_momentum,
+                'momentum_delta' : momentum_delta,
+                'lr_weight_decay' : weight_decay,
+            }
+            save_log(out_dir, date, **{**train_metrics, **hyperparameters})
+
 
 def train(rank, 
           world_size, 
@@ -175,13 +261,12 @@ def train(rank,
           total_epochs,
           start_epoch,
           batch_size,
-          optimizer_type,
           learning_rate,
           start_momentum,
           end_momentum,
           conv1_weight_constraint,
           weight_decay,
-          betas,
+          early_stopping_patience,
           using_windows):
     
     
@@ -226,10 +311,7 @@ def train(rank,
     criterion = nn.BCELoss().to(rank)
 
     # Initialise SGD optimiser
-    if optimizer_type == 'Adam':
-        optimizer = optim.Adam(model.parameters(), betas=betas, lr=learning_rate, weight_decay=weight_decay)
-    else:
-        optimizer = optim.SGD(model.parameters(), lr=learning_rate, momentum=start_momentum, weight_decay=weight_decay)
+    optimizer = optim.SGD(model.parameters(), lr=learning_rate, momentum=start_momentum, weight_decay=weight_decay)
 
     train_metrics = {
         "Average BCE loss per train epoch" : [],
@@ -243,6 +325,9 @@ def train(rank,
 
     if verbose:
         print(f'Starting training for {total_epochs} epochs ({total_iterations} iterations)')
+
+    best_avg_val_auc = 0
+    epochs_since_checkpoint = 0
 
     train_start_time = time.time()
 
@@ -269,102 +354,32 @@ def train(rank,
                 print(f"Epoch [{epoch+1}/{total_epochs}] (time: {epoch_time}), Train BCE loss: {avg_train_loss:.4f}, Train accuracy: {train_accuracy:.2f}, Validaton mean auc: {avg_val_auc}")
 
             train_metrics['Average val auc per train epoch'].append(round(avg_val_auc, 2))
+
+            # Handle early stopping
+            if early_stopping_patience != -1:
+                if best_avg_val_auc < avg_val_auc:
+                    save(model, out_dir, train_metrics, momentum_delta, train_start_time, epoch, multi_gpu, device, world_size)
+                    epochs_since_checkpoint = 0
+                    best_avg_val_auc = avg_val_auc
+                else:
+                    epochs_since_checkpoint += 1
+
+                    if epochs_since_checkpoint >= early_stopping_patience:
+                        if verbose:
+                            print('Validation AUC not increased for {epochs_since_checkpoint} epochs - stopping early.')
+                            break
+
         else:
             epoch_time = time.strftime("%H:%M:%S", time.gmtime((time.time() - epoch_start_time)))
             if verbose:
                 print(f"Epoch [{epoch+1}/{total_epochs}] (time: {epoch_time}), Train BCE loss: {avg_train_loss:.4f}, Train accuracy: {train_accuracy:.2f}")
 
-    # Get runtime
-    train_metrics['Train runtime'] = time.time() - train_start_time
 
-    if multi_gpu:
-        dist.barrier()
-
-        # Send all the gpu node metrics back to the main gpu
-        torch.cuda.set_device(rank)
-        train_metrics_gpus = [None for _ in range(world_size)]
-        dist.all_gather_object(train_metrics_gpus, train_metrics)
-
-        if rank == 0: # if main gpu
-            print('Done training')
-
-            # Get runtime
-            runtime = np.max([gpu_metrics['Train runtime'] for gpu_metrics in train_metrics_gpus])
-            runtime = time.strftime("%H:%M:%S", time.gmtime(runtime))
-
-            # Split the metrics from train_metrics_gpus
-            bce_losses = [gpu_metrics["Average BCE loss per train epoch"] for gpu_metrics in train_metrics_gpus]
-            avg_accs = [gpu_metrics["Average accuracy per train epoch"] for gpu_metrics in train_metrics_gpus]
-            avg_val_aucs = [gpu_metrics["Average val auc per train epoch"] for gpu_metrics in train_metrics_gpus]
-
-            # Stack the metrics and calculate mean across GPUs for each epoch
-            bce_losses = np.mean(np.vstack(bce_losses), axis=0)
-            avg_accs = np.mean(np.vstack(avg_accs), axis=0)
-            avg_val_aucs = np.mean(np.vstack(avg_val_aucs), axis=0)
-
-            # Final train metric for the log
-            final_train_metrics = {
-                "Train runtime" : runtime,
-                "Average BCE loss per train epoch": bce_losses.tolist(),
-                "Average accuracy per train epoch": avg_accs.tolist(),
-                "Average val auc per train epoch": avg_val_aucs.tolist(),
-            }
-
-            # Output directory
-            date = datetime.now()
-            out_dir = os.path.join(out_dir, f'trained/{date.strftime("%Y_%m_%d_%p%I_%M")}')
-            if not os.path.exists(out_dir):
-                os.makedirs(out_dir)
-
-            # Save trained model
-            model_path = os.path.join(out_dir, f'cnn.pth')
-            torch.save(model.state_dict(), model_path)
-            print(f'Model saved to {model_path}.')
-
-            # Write log about model and training performance
-            hyperparameters = {
-                'total_epochs' : total_epochs,
-                'start_epoch' : start_epoch,
-                'batch_size' : batch_size,
-                'learning_rate' : learning_rate,
-                'start_momentum' : start_momentum,
-                'end_momentum' : end_momentum,
-                'momentum_delta' : momentum_delta,
-                'lr_weight_decay' : weight_decay,
-            }
-            save_log(out_dir, date, **{**final_train_metrics, **hyperparameters})
-
-        if dist.is_initialized():
+    if dist.is_initialized():
             dist.destroy_process_group()
 
-    else: # using single gpu
-            
-        # Final train metric for the log
-            train_metrics["Train runtime"] = time.strftime("%H:%M:%S", time.gmtime(train_metrics["Train runtime"]))
-
-            # Output directory
-            date = datetime.now()
-            out_dir = os.path.join(out_dir, f'trained/{date.strftime("%Y_%m_%d_%p%I_%M")}')
-            if not os.path.exists(out_dir):
-                os.makedirs(out_dir)
-
-            # Save trained model
-            model_path = os.path.join(out_dir, f'cnn.pth')
-            torch.save(model.state_dict(), model_path)
-            print(f'Model saved to {model_path}.')
-
-            # Write log about model and training performance
-            hyperparameters = {
-                'total_epochs' : total_epochs,
-                'start_epoch' : start_epoch,
-                'batch_size' : batch_size,
-                'learning_rate' : learning_rate,
-                'start_momentum' : start_momentum,
-                'end_momentum' : end_momentum,
-                'momentum_delta' : momentum_delta,
-                'lr_weight_decay' : weight_decay,
-            }
-            save_log(out_dir, date, **{**train_metrics, **hyperparameters})
+    if verbose:
+        print('Done training.')
 
 
 
@@ -385,8 +400,7 @@ if __name__ == '__main__':
     parser.add_argument('--conv1_weight_constraint', type=float, help="L2 norm constraint in the first conv layer", default=0.1)
     parser.add_argument('--using_windows', type=bool, help='Whether the script is being executed on a Windows machine (default=False)', default=False)
     parser.add_argument('--improvements', type=int, help='If to use improvements and what improvements to use. 0: none, 1: adam optimizer', default=0)
-    parser.add_argument('--beta1', type=float, help='Beta1 if using improvements (with --improvements flag) which use Adam optimizer (default=0.9)', default=0.9)
-    parser.add_argument('--beta2', type=float, help='Beta2 if using improvements (with --improvements flag) which use Adam optimizer (default=0.999)', default=0.999)
+    parser.add_argument('--early_stopping_patience', type=int, help='How many epochs to wait without validation improvement before early stopping (default=-1 no early stopping)', default=-1)
     args = parser.parse_args()
     
     data_dir = args.data_dir
@@ -404,12 +418,7 @@ if __name__ == '__main__':
     conv1_weight_constraint = args.conv1_weight_constraint
 
     # Get improvements
-    improvements = args.improvements
-    betas = (args.beta1, args.beta2)
-    optimizer_type = 'SGDm' # SGD with momentum
-    if improvements == 1:
-        optimizer_type = 'Adam' 
-
+    early_stopping_patience = args.early_stopping_patience
 
     # Initialise gpus
     world_size = args.num_gpus 
@@ -424,13 +433,12 @@ if __name__ == '__main__':
               total_epochs,
               start_epoch,
               batch_size,
-              optimizer_type,
               learning_rate,
               start_momentum,
               end_momentum,
               conv1_weight_constraint,
               weight_decay,
-              betas,
+              early_stopping_patience,
               True) # using windows
     else:
         mp.spawn(
@@ -442,13 +450,12 @@ if __name__ == '__main__':
                   total_epochs,
                   start_epoch,
                   batch_size,
-                  optimizer_type,
                   learning_rate,
                   start_momentum,
                   end_momentum,
                   conv1_weight_constraint,
                   weight_decay,
-                  betas,
+                  early_stopping_patience,
                   False), # using windows
             nprocs=world_size)
     
