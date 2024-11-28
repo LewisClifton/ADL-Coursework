@@ -239,6 +239,13 @@ def train(rank,
 
     # Initialise SGD optimiser
     optimizer = optim.SGD(model.parameters(), lr=learning_rate, momentum=start_momentum, weight_decay=weight_decay)
+
+    # Get the amount to increase the momentum by each iteration
+    total_iterations = len(train_loader) * total_epochs
+    momentum_delta = (end_momentum - start_momentum) / total_iterations # linear momentum increase
+
+    if verbose:
+        print(f'Starting training for {total_epochs} epochs ({total_iterations} iterations)')
     
     # For writing logs
     hyperparameters = {
@@ -255,13 +262,7 @@ def train(rank,
         "Average val auc per train epoch" : [] 
     }
 
-    # Get the amount to increase the momentum by each iteration
-    total_iterations = len(train_loader) * total_epochs
-    momentum_delta = (end_momentum - start_momentum) / total_iterations # linear momentum increase
-
-    if verbose:
-        print(f'Starting training for {total_epochs} epochs ({total_iterations} iterations)')
-
+    # For early stopping
     best_avg_val_auc = 0
     epochs_since_checkpoint = 0
 
