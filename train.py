@@ -328,7 +328,7 @@ def train(rank,
                     hyperparameters['total_epochs'] = epoch
                     train_metrics['Train runtime'] = time.strftime("%H:%M:%S", time.gmtime(time.time() - train_start_time))
 
-                    save(model, out_dir, train_metrics, train_start_time, epoch, hyperparameters, multi_gpu, device)
+                    save(model, out_dir, train_metrics, epoch, hyperparameters)
 
                     epochs_since_checkpoint = 0
                     best_avg_val_auc = avg_val_auc
