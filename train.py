@@ -93,7 +93,7 @@ def train_epoch(model, train_loader, optimizer, criterion, momentum_delta, conv1
             increase_momentum(optimizer, momentum_delta)
         
         # Apply weight constraint to the first conv layer in the network
-        apply_conv1_weight_constraint(model, weight_contraint=conv1_weight_constraint, using_windows=using_windows, world_size=world_size)
+        apply_conv1_weight_constraint(model, weight_constraint=conv1_weight_constraint, using_windows=using_windows, world_size=world_size)
 
     # # Calculate the average loss and accuracy for the current epoch
     avg_loss = running_loss / len(train_loader)
