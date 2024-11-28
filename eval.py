@@ -113,6 +113,7 @@ def main(data_dir,
          batch_size):
 
     # Get train and validation data
+    print('Loading datasets...')
     test_data = MIT(dataset_path=os.path.join(data_dir, "test_data.pth.tar"))
     print('Test dataset loaded.')
 
@@ -158,7 +159,7 @@ def main(data_dir,
     save_log(out_dir, date, **{**final_test_metrics})
 
     if num_saved_images > 0:
-        print(f'Saved {num_saved_images} to {image_dir}.')
+        print(f'Saved {num_saved_images} generated saliency images to {image_dir}.')
 
 
 if __name__ == '__main__':
