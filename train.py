@@ -184,19 +184,24 @@ def train(rank,
         setup_gpus(rank, world_size)
 
     # Get train and validation data
-    if rank == 0: 
+    if rank == 0 or world_size == 1: 
         print('Loading datasets...')
     train_data = MIT(dataset_path=os.path.join(data_dir, "train_data.pth.tar"))
     val_data = MIT(dataset_path=os.path.join(data_dir, "val_data.pth.tar"))
-    if rank == 0:
+    if rank == 0 or world_size == 1:
         print("Loaded datasets.")
 
     # Ground truth directory
     GT_fixations_dir = os.path.join(data_dir, "ALLFIXATIONMAPS")
 
     # Create data loaders
-    train_loader = get_data_loader(train_data, rank, world_size, batch_size=batch_size)
-    val_loader = get_data_loader(val_data, rank, world_size, batch_size=batch_size)
+    if not using_windows and world_size > 1:
+        train_loader = get_data_loader(train_data, rank, world_size, batch_size=batch_size)
+        val_loader = get_data_loader(val_data, rank, world_size, batch_size=batch_size)
+    else:
+        train_loader = DataLoader(train_data, batch_size=batch_size)
+        val_loader = DataLoader(val_data, batch_size=batch_size)
+
 
     # Create the model
     model = MrCNN().to(rank)
