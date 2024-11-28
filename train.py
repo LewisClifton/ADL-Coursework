@@ -201,10 +201,12 @@ def train(rank,
     # Create data loaders
     if multi_gpu:
         train_loader = get_data_loader(train_data, rank, world_size, batch_size=batch_size)
-        val_loader = get_data_loader(val_data, rank, world_size, batch_size=batch_size)
+        if use_val:
+            val_loader = get_data_loader(val_data, rank, world_size, batch_size=batch_size)
     else:
         train_loader = DataLoader(train_data, batch_size=batch_size)
-        val_loader = DataLoader(val_data, batch_size=batch_size)
+        if use_val:
+            val_loader = DataLoader(val_data, batch_size=batch_size)
 
 
     # Create the model
