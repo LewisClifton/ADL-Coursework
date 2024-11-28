@@ -167,39 +167,19 @@ def val_epoch(model, val_loader, val_data, GT_fixations_dir, device):
 
 def save(model, out_dir, train_metrics, momentum_delta, train_start_time, epoch, multi_gpu, device, world_size):
     # Get runtime
-    train_metrics['Train runtime'] = time.time() - train_start_time
+    runtime = time.time() - train_start_time
 
     if multi_gpu:
-        dist.barrier()
-
-        # Send all the gpu node metrics back to the main gpu
-        torch.cuda.set_device(device)
-        train_metrics_gpus = [None for _ in range(world_size)]
-        dist.all_gather_object(train_metrics_gpus, train_metrics)
+        
+        # Get runtime
+        runtime = torch.tensor(runtime).to(device)
+        torch.distributed.all_reduce(runtime, op=torch.distributed.ReduceOp.MAX)
+        runtime /= world_size
+        runtime = time.strftime("%H:%M:%S", time.gmtime(str(runtime.item())))
 
         if device == 0: # if main gpu
 
-            # Get runtime
-            runtime = np.max([gpu_metrics['Train runtime'] for gpu_metrics in train_metrics_gpus])
-            runtime = time.strftime("%H:%M:%S", time.gmtime(runtime))
-
-            # Split the metrics from train_metrics_gpus
-            bce_losses = [gpu_metrics["Average BCE loss per train epoch"] for gpu_metrics in train_metrics_gpus]
-            avg_accs = [gpu_metrics["Average accuracy per train epoch"] for gpu_metrics in train_metrics_gpus]
-            avg_val_aucs = [gpu_metrics["Average val auc per train epoch"] for gpu_metrics in train_metrics_gpus]
-
-            # Stack the metrics and calculate mean across GPUs for each epoch
-            bce_losses = np.mean(np.vstack(bce_losses), axis=0)
-            avg_accs = np.mean(np.vstack(avg_accs), axis=0)
-            avg_val_aucs = np.mean(np.vstack(avg_val_aucs), axis=0)
-
-            # Final train metric for the log
-            final_train_metrics = {
-                "Train runtime" : runtime,
-                "Average BCE loss per train epoch": bce_losses.tolist(),
-                "Average accuracy per train epoch": avg_accs.tolist(),
-                "Average val auc per train epoch": avg_val_aucs.tolist(),
-            }
+            train_metrics['Train runtime'] = runtime
 
             # Save trained model
             model_path = os.path.join(out_dir, f'cnn_epoch_{epoch+1}.pth')
@@ -216,12 +196,12 @@ def save(model, out_dir, train_metrics, momentum_delta, train_start_time, epoch,
                 'momentum_delta' : momentum_delta,
                 'lr_weight_decay' : weight_decay,
             }
-            save_log(out_dir, datetime.now(), **{**final_train_metrics, **hyperparameters})
+            save_log(out_dir, datetime.now(), **{**train_metrics, **hyperparameters})
 
     else: # using single gpu
             
         # Final train metric for the log
-            train_metrics["Train runtime"] = time.strftime("%H:%M:%S", time.gmtime(train_metrics["Train runtime"]))
+            train_metrics["Train runtime"] = time.strftime("%H:%M:%S", time.gmtime(runtime))
 
             # Save trained model
             model_path = os.path.join(out_dir, f'cnn_epoch_{epoch+1}.pth')
@@ -259,7 +239,7 @@ def train(rank,
     
     
     multi_gpu = not using_windows and world_size > 1 # multi-gpu not supported on Windows
-    verbose = ((rank == 0) or (not multi_gpu)) # show prints if on main gpu or if using single gpu
+    verbose = ((rank == 0) or (not multi_gpu)) # if on main gpu or if using single gpu
 
     # setup the process groups if necessary
     if multi_gpu:
@@ -334,41 +314,75 @@ def train(rank,
         # Performing single train epoch and get train metrics
         avg_train_loss, train_accuracy = train_epoch(model, train_loader, optimizer, criterion, momentum_delta, conv1_weight_constraint=conv1_weight_constraint, using_windows=using_windows, world_size=world_size, device=rank)
 
+        if multi_gpu:
+            # Average metrics over all gpus
+            dist.barrier() 
+
+            avg_train_loss= torch.tensor(avg_train_loss).to(rank)
+            torch.distributed.all_reduce(avg_train_loss, op=torch.distributed.ReduceOp.SUM)
+            avg_train_loss /= world_size
+            avg_train_loss = avg_train_loss.item()
+
+            train_accuracy= torch.tensor(train_accuracy).to(rank)
+            torch.distributed.all_reduce(train_accuracy, op=torch.distributed.ReduceOp.SUM)
+            train_accuracy /= train_accuracy
+            train_accuracy = train_accuracy.item()
+
+        # Log this epoch's training metrics
         train_metrics["Average BCE loss per train epoch"].append(round(avg_train_loss, 2))
         train_metrics["Average accuracy per train epoch"].append(round(train_accuracy, 2))
 
+        # Do validation
         if use_val:
             # Perform single validation epoch and get validation metrics
             avg_val_auc = val_epoch(model, val_loader, val_data, GT_fixations_dir, device=rank)
 
+            # Print epoch results with validation score
             epoch_time = time.strftime("%H:%M:%S", time.gmtime((time.time() - epoch_start_time)))
             if verbose:
                 print(f"Epoch [{epoch+1}/{total_epochs}] (time: {epoch_time}), Train BCE loss: {avg_train_loss:.4f}, Train accuracy: {train_accuracy:.2f}, Validaton mean auc: {avg_val_auc}")
 
+            
+            if multi_gpu:
+                # Get average validation auc over all gpus
+                dist.barrier()
+
+                avg_val_auc= torch.tensor(avg_val_auc).to(rank)
+                torch.distributed.all_reduce(avg_val_auc, op=torch.distributed.ReduceOp.SUM)
+                avg_val_auc /= world_size
+                avg_val_auc = avg_val_auc.item()
+
+            # Log this epoch's validation metrics
             train_metrics['Average val auc per train epoch'].append(round(avg_val_auc, 2))
 
-            # Handle early stopping
-            if early_stopping_patience != -1:
+            # Handle early stopping if required and if on the main gpu
+            if early_stopping_patience != -1 and verbose:
+
                 if best_avg_val_auc < avg_val_auc:
+                    # If current validation score is better then save the model
                     save(model, out_dir, train_metrics, momentum_delta, train_start_time, epoch, multi_gpu, device, world_size)
                     epochs_since_checkpoint = 0
                     best_avg_val_auc = avg_val_auc
                 else:
+                    # If current validation score is worse then don't save the model
                     epochs_since_checkpoint += 1
 
+                    # If it has been too long without seeing improvement, stop early
                     if epochs_since_checkpoint >= early_stopping_patience:
                         if verbose:
                             print('Validation AUC not increased for {epochs_since_checkpoint} epochs - stopping early.')
                             break
 
         else:
+            # Print epoch results without validation score
             epoch_time = time.strftime("%H:%M:%S", time.gmtime((time.time() - epoch_start_time)))
             if verbose:
                 print(f"Epoch [{epoch+1}/{total_epochs}] (time: {epoch_time}), Train BCE loss: {avg_train_loss:.4f}, Train accuracy: {train_accuracy:.2f}")
-
-
-    if dist.is_initialized():
-            dist.destroy_process_group()
+    
+    if multi_gpu:
+        dist.barrier()
+        if dist.is_initialized():
+                dist.destroy_process_group()
 
     if verbose:
         print('Done training.')
