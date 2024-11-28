@@ -1,14 +1,10 @@
-import re
 import torch
-import torch.distributed as dist
-from torch.nn.parallel import DistributedDataParallel as DDP
 import numpy as np
 from PIL import Image
 from datetime import datetime
 import time
 import os
 import argparse
-import torch.multiprocessing as mp
 
 from dataset import MIT
 from model import MrCNN
@@ -17,7 +13,7 @@ from utils import *
 
 # Set up cuda
 torch.backends.cudnn.enabled = True
-
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Load model
 def load_model(model, model_path):
@@ -37,7 +33,7 @@ def load_model(model, model_path):
     return model
 
 
-def evaluate(model, test_loader, test_data, GT_fixations_dir, image_dir, device, num_saved_images=5):
+def evaluate(model, test_loader, test_data, GT_fixations_dir, image_dir, num_saved_images=5):
     # Set the model to evaluation mode
     model.eval()  
 
@@ -111,103 +107,59 @@ def evaluate(model, test_loader, test_data, GT_fixations_dir, image_dir, device,
         return avg_auc
     
 
-def main(rank, 
-          world_size,
-          data_dir,
-          out_dir,
-          model_path,
-          batch_size,
-          num_saved_images,
-          using_windows):
-
-    if not using_windows and world_size > 1:
-        # setup the process groups
-        setup_gpus(rank, world_size)
+def main(data_dir,
+         out_dir,
+         model_path,
+         batch_size):
 
     # Get train and validation data
     test_data = MIT(dataset_path=os.path.join(data_dir, "test_data.pth.tar"))
+    print('Test dataset loaded.')
 
     # Ground truth directory
     GT_fixations_dir = os.path.join(data_dir, "ALLFIXATIONMAPS")
 
     # Create data loaders
-    test_loader = get_data_loader(test_data, rank, world_size, batch_size=batch_size)
+    test_loader = DataLoader(test_data, batch_size=batch_size)
 
     # Load the trained model
-    model = MrCNN().to(rank)
+    model = MrCNN().to(device)
     model = load_model(model, model_path)
-    
-    if not using_windows and world_size > 1:
-        # Wrap model with DDP
-        model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=False)
 
     # Output directory
     date = datetime.now()
     out_dir = os.path.join(out_dir, f'eval/{date.strftime("%Y_%m_%d_%p%I_%M")}')
-    if not os.path.exists(out_dir) and rank == 0:
+    if not os.path.exists(out_dir):
         os.makedirs(out_dir)
 
     # Directory to save images to
     image_dir = os.path.join(out_dir, "Comparison images")
-    if not os.path.exists(image_dir) and rank == 0:
+    if not os.path.exists(image_dir):
         os.makedirs(image_dir, exist_ok=True)
 
     # For gettin runtime
     eval_start_time = time.time()
 
+    print(f'Starting evaluation for {model_path} using {int(len(test_data)/test_data.num_crops)} test images.')
+
     # Evaluate over the test set
-    test_avg_auc = evaluate(model, test_loader, test_data, GT_fixations_dir, image_dir, num_saved_images=num_saved_images, device=rank)
+    test_avg_auc = evaluate(model, test_loader, test_data, GT_fixations_dir, image_dir, num_saved_images=num_saved_images)
 
     # Get runtime
     runtime = time.time() - eval_start_time
 
-    if not using_windows and world_size > 1:
-        # Wait for all the GPUs to finish evaluating
-        dist.barrier()
+    final_test_metrics = {
+        'Model path' : model_path,
+        'Average test AUC' : test_avg_auc,
+        'Test runtime' : time.strftime("%H:%M:%S", time.gmtime(runtime)),
+    }
 
-        # Send all the gpu node metrics back to the main gpu
-        test_metrics = {
-            'Average test AUC' : test_avg_auc,
-            'Test runtime' : runtime,
-        }
-        torch.cuda.set_device(rank)
-        test_metrics_gpus = [None for _ in range(world_size)]
-        dist.all_gather_object(test_metrics_gpus, test_metrics)
+    # Save metrics
+    save_log(out_dir, date, **{**final_test_metrics})
 
-        if rank == 0:
+    if num_saved_images > 0:
+        print(f'Saved {num_saved_images} to {image_dir}.')
 
-            # Calculate average AUC over all the GPUs
-            test_avg_aucs = [gpu_metrics['Average test AUC'] for gpu_metrics in test_metrics_gpus]
-            test_avg_auc = np.mean(np.vstack(test_avg_aucs), axis=0)
-
-            # Get runtime
-            runtime = np.max([gpu_metrics['Test runtime'] for gpu_metrics in test_metrics_gpus])
-            runtime = time.strftime("%H:%M:%S", time.gmtime(runtime))
-
-            final_test_metrics = {
-                'Model path' : model_path,
-                'Average test AUC' : test_avg_auc,
-                'Test runtime' : runtime,
-            }
-
-            # Save metrics
-            save_log(out_dir, date, **{**final_test_metrics})
-
-            if num_saved_images > 0:
-                print(f'Saved {num_saved_images} to {image_dir}.')
-
-        if dist.is_initialized():
-            dist.destroy_process_group()
-
-    else: 
-
-        final_test_metrics['Test runtime'] = time.strftime("%H:%M:%S", time.gmtime(runtime))
-
-        # Save metrics
-        save_log(out_dir, date, **{**final_test_metrics})
-
-        if num_saved_images > 0:
-            print(f'Saved {num_saved_images} to {image_dir}.')
 
 if __name__ == '__main__':
 
@@ -216,31 +168,17 @@ if __name__ == '__main__':
     parser.add_argument('--data_dir', type=str, help="Path to directory for dataset", required=True)
     parser.add_argument('--out_dir', type=str, help="Path to directory for saving model/log/images", required=True)
     parser.add_argument('--model_path', type=str, help="Path of model to evaluate")
-    parser.add_argument('--batch_size', type=int, help="Data loader batch size", default=256)
-    parser.add_argument('--num_gpus', type=int, help="Number of gpus to train with", default=1)
     parser.add_argument('--num_saved_images', type=int, help="Number of comparison images to save", default=0)
-    parser.add_argument('--using_windows', type=bool, help='Whether the script is being executed on a Windows machine (default=False)', default=False)
     args = parser.parse_args()
     
     data_dir = args.data_dir
     out_dir = args.out_dir
     model_path = args.model_path
-    batch_size = args.batch_size
     num_saved_images = args.num_saved_images
 
-    # Initialise gpus
-    world_size = args.num_gpus 
-    using_windows = args.using_windows
-    
-    mp.spawn(
-        main,
-        args=(world_size,
-              data_dir,
-              out_dir,
-              model_path,
-              batch_size,
-              num_saved_images,
-              using_windows),
-        nprocs=world_size)
+    main(data_dir,
+         out_dir,
+         model_path,
+         num_saved_images)
     
     
