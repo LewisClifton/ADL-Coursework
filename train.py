@@ -354,7 +354,7 @@ if __name__ == '__main__':
     # Command line args
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_dir', type=str, help="Path to directory for dataset containing *_data.pth.tar", required=True)
-    parser.add_argument('--out_dir', type=str, help="Path to directory for saving model/log", required=True)
+    parser.add_argument('--out_dir', type=str, help="Path to directory for saving model/log (default to cwd)", required='.')
     parser.add_argument('--epochs', type=int, help="Number of epochs to train with", default=20)
     parser.add_argument('--num_gpus', type=int, help="Number of gpus to train with", default=2)
     parser.add_argument('--use_val', type=bool, help='Track validation metrics during training', default=False)
@@ -394,7 +394,8 @@ if __name__ == '__main__':
     using_windows = args.using_windows
 
     if using_windows or world_size == 1:
-        train(0, 1,
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        train(device, 1,
               data_dir,
               out_dir,
               use_val,
