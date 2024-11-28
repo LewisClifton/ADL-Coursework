@@ -233,7 +233,7 @@ def train(rank,
     momentum_delta = (end_momentum - start_momentum) / total_iterations # linear momentum increase
 
     if verbose:
-        print(f'Starting training for {total_iterations} ({total_epochs } epochs)')
+        print(f'Starting training for {total_iterations} iterations ({total_epochs } epochs)')
 
     train_start_time = time.time()
 
@@ -375,7 +375,8 @@ if __name__ == '__main__':
     parser.add_argument('--lr_weight_decay', type=float, help="Learning rate weight decay", default=2e-4)
     parser.add_argument('--using_windows', type=bool, help='Whether the script is being executed on a Windows machine (default=False)', default=False)
     parser.add_argument('--improvements', type=int, help='If to use improvements and what improvements to use. 0: none, 1: adam optimizer', default=0)
-    parser.add_argument('--betas', type=type, help='Tuple of betas if using improvements (with --improvements flag) which use Adam optimizer (default=(0.9, 0.999))', default=(0.9, 0.999))
+    parser.add_argument('--beta1', type=type, help='Beta1 if using improvements (with --improvements flag) which use Adam optimizer (default=0.9)', default=0.9)
+    parser.add_argument('--beta2', type=type, help='Beta2 if using improvements (with --improvements flag) which use Adam optimizer (default=0.999)', default=0.999)
     args = parser.parse_args()
     
     data_dir = args.data_dir
@@ -393,7 +394,7 @@ if __name__ == '__main__':
 
     # Get improvements
     improvements = args.improvements
-    betas = args.betas
+    betas = (args.beta1, args.beta2)
     optimizer_type = 'SGDm' # SGD with momentum
     if improvements == 1:
         optimizer_type = 'Adam' 
