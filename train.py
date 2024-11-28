@@ -201,12 +201,6 @@ def save(model, out_dir, train_metrics, momentum_delta, train_start_time, epoch,
                 "Average val auc per train epoch": avg_val_aucs.tolist(),
             }
 
-            # Output directory
-            date = datetime.now()
-            out_dir = os.path.join(out_dir, f'trained/{date.strftime("%Y_%m_%d_%p%I_%M")}')
-            if not os.path.exists(out_dir):
-                os.makedirs(out_dir)
-
             # Save trained model
             model_path = os.path.join(out_dir, f'cnn_epoch_{epoch+1}.pth')
             torch.save(model.state_dict(), model_path)
@@ -222,19 +216,13 @@ def save(model, out_dir, train_metrics, momentum_delta, train_start_time, epoch,
                 'momentum_delta' : momentum_delta,
                 'lr_weight_decay' : weight_decay,
             }
-            save_log(out_dir, date, **{**final_train_metrics, **hyperparameters})
+            save_log(out_dir, datetime.now(), **{**final_train_metrics, **hyperparameters})
 
     else: # using single gpu
             
         # Final train metric for the log
             train_metrics["Train runtime"] = time.strftime("%H:%M:%S", time.gmtime(train_metrics["Train runtime"]))
 
-            # Output directory
-            date = datetime.now()
-            out_dir = os.path.join(out_dir, f'trained/{date.strftime("%Y_%m_%d_%p%I_%M")}')
-            if not os.path.exists(out_dir):
-                os.makedirs(out_dir)
-
             # Save trained model
             model_path = os.path.join(out_dir, f'cnn_epoch_{epoch+1}.pth')
             torch.save(model.state_dict(), model_path)
@@ -250,7 +238,7 @@ def save(model, out_dir, train_metrics, momentum_delta, train_start_time, epoch,
                 'momentum_delta' : momentum_delta,
                 'lr_weight_decay' : weight_decay,
             }
-            save_log(out_dir, date, **{**train_metrics, **hyperparameters})
+            save_log(out_dir, datetime.now(), **{**train_metrics, **hyperparameters})
 
 
 def train(rank, 
@@ -299,6 +287,10 @@ def train(rank,
         if use_val:
             val_loader = DataLoader(val_data, batch_size=batch_size)
 
+    # Output directory
+    out_dir = os.path.join(out_dir, f'trained/{datetime.now().strftime("%Y_%m_%d_%p%I_%M")}')
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
 
     # Create the model
     model = MrCNN().to(rank)
