@@ -34,9 +34,9 @@ class GaussianPriorMap(nn.Module):
 
         return gaussian_map
 
-class MrCNNStream(nn.Module):
+class ImprovedMrCNNStream(nn.Module):
     def __init__(self):
-        super(MrCNNStream, self).__init__()
+        super(ImprovedMrCNNStream, self).__init__()
         
     
         self.conv1 = nn.Conv2d(in_channels=3, out_channels=96, kernel_size=7, stride=1, padding=0)
@@ -93,9 +93,9 @@ class ImprovedMrCNN(nn.Module):
     def __init__(self):
         super(ImprovedMrCNN, self).__init__()
 
-        self.stream1 = MrCNNStream()
-        self.stream2 = MrCNNStream()
-        self.stream3 = MrCNNStream()
+        self.stream1 = ImprovedMrCNNStream()
+        self.stream2 = ImprovedMrCNNStream()
+        self.stream3 = ImprovedMrCNNStream()
 
         self.fc = nn.Linear(in_features=(512 * 3), out_features=512)
 
