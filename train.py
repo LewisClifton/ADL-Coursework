@@ -233,7 +233,7 @@ def train(rank,
     momentum_delta = (end_momentum - start_momentum) / total_iterations # linear momentum increase
 
     if verbose:
-        print(f'Starting training for {total_iterations} iterations ({total_epochs } epochs)')
+        print(f'Starting training for {total_epochs} epochs ({total_iterations} iterations)')
 
     train_start_time = time.time()
 
