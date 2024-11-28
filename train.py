@@ -24,22 +24,30 @@ from improvements import ImprovedMrCNN
 torch.backends.cudnn.enabled = True
 
 
-def apply_conv_weight_constraint(model, using_windows, world_size, weight_constraint=0.1):
+def apply_conv1_weight_constraint(model, using_windows, world_size, weight_constraint=0.1):
     with torch.no_grad():
+        # Get the first convolution layer in each stream
         if not using_windows and world_size > 1:
             convs = [model.module.stream1.conv1, model.module.stream2.conv1, model.module.stream3.conv1]
         else:
             convs = [model.stream1.conv1, model.stream2.conv1, model.stream3.conv1]
-            
+        
+        # For each of the first convolution layers
         for conv in convs:
+            # Calculate the l2 norm
             norm = torch.linalg.norm(conv.weight, ord=2, dim=(2,3), keepdim=True)
+
+            # Find weights where the l2 norm exceeds the weight constraint
             norm_condition = (norm > weight_constraint).expand_as(conv.weight.data)
+
+            # Normalise theese weights
             conv.weight.data[norm_condition] /= (norm + 1e-8).expand_as(conv.weight.data)[norm_condition]
 
 def increase_momentum(optimizer, momentum_delta):
+    # Increase the momentum by the linear momentum delta
     optimizer.param_groups[0]['momentum'] =optimizer.param_groups[0]['momentum'] + momentum_delta
 
-def train_epoch(model, train_loader, optimizer, criterion, momentum_delta, using_windows, world_size, device):
+def train_epoch(model, train_loader, optimizer, criterion, momentum_delta, conv1_weight_constraint, using_windows, world_size, device):
     # Set the model to training mode
     model.train()  
 
@@ -82,13 +90,12 @@ def train_epoch(model, train_loader, optimizer, criterion, momentum_delta, using
         correct_predictions += (predicted.squeeze() == labels).sum().item()
         total_samples += labels.size(0)
 
-
         # Linearly increase momentum to end momentum if using SGD
         if optimizer.__class__.__name__ == 'SGD':
             increase_momentum(optimizer, momentum_delta)
         
         # Apply weight constraint to the first conv layer in the network
-        apply_conv_weight_constraint(model, using_windows=using_windows, world_size=world_size)
+        apply_conv1_weight_constraint(model, weight_contraint=conv1_weight_constraint, using_windows=using_windows, world_size=world_size)
 
     # # Calculate the average loss and accuracy for the current epoch
     avg_loss = running_loss / len(train_loader)
@@ -174,6 +181,7 @@ def train(rank,
           learning_rate,
           start_momentum,
           end_momentum,
+          conv1_weight_constraint,
           weight_decay,
           betas,
           using_windows):
@@ -249,7 +257,7 @@ def train(rank,
         epoch_start_time = time.time()
         
         # Performing single train epoch and get train metrics
-        avg_train_loss, train_accuracy = train_epoch(model, train_loader, optimizer, criterion, momentum_delta, using_windows, world_size, device=rank)
+        avg_train_loss, train_accuracy = train_epoch(model, train_loader, optimizer, criterion, momentum_delta, conv1_weight_constraint, using_windows, world_size, device=rank)
 
         train_metrics["Average BCE loss per train epoch"].append(round(avg_train_loss, 2))
         train_metrics["Average accuracy per train epoch"].append(round(train_accuracy, 2))
@@ -376,6 +384,7 @@ if __name__ == '__main__':
     parser.add_argument('--start_momentum', type=float, help="Optimiser start momentum", default=0.9)
     parser.add_argument('--end_momentum', type=float, help="Optimiser end momentum", default=0.99)
     parser.add_argument('--lr_weight_decay', type=float, help="Learning rate weight decay", default=2e-4)
+    parser.add_argument('--conv1_weight_constraint', type=float, help="L2 norm constraint in the first conv layer", default=0.1)
     parser.add_argument('--using_windows', type=bool, help='Whether the script is being executed on a Windows machine (default=False)', default=False)
     parser.add_argument('--improvements', type=int, help='If to use improvements and what improvements to use. 0: none, 1: adam optimizer', default=0)
     parser.add_argument('--beta1', type=float, help='Beta1 if using improvements (with --improvements flag) which use Adam optimizer (default=0.9)', default=0.9)
@@ -394,6 +403,7 @@ if __name__ == '__main__':
     start_momentum = args.start_momentum
     end_momentum = args.end_momentum
     weight_decay = args.lr_weight_decay
+    conv1_weight_constraint = args.conv1_weight_constraint
 
     # Get improvements
     improvements = args.improvements
@@ -420,6 +430,7 @@ if __name__ == '__main__':
               learning_rate,
               start_momentum,
               end_momentum,
+              conv1_weight_constraint,
               weight_decay,
               betas,
               True) # using windows
@@ -437,6 +448,7 @@ if __name__ == '__main__':
                   learning_rate,
                   start_momentum,
                   end_momentum,
+                  conv1_weight_constraint,
                   weight_decay,
                   betas,
                   False), # using windows
