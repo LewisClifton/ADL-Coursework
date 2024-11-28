@@ -165,60 +165,15 @@ def val_epoch(model, val_loader, val_data, GT_fixations_dir, device):
 
         return avg_auc
 
-def save(model, out_dir, train_metrics, momentum_delta, train_start_time, epoch, multi_gpu, device, world_size):
-    # Get runtime
-    runtime = time.time() - train_start_time
+def save(model, out_dir, train_metrics, epoch, hyperparameters):
 
-    if multi_gpu:
-        
-        # Get runtime
-        runtime = torch.tensor(runtime).to(device)
-        torch.distributed.all_reduce(runtime, op=torch.distributed.ReduceOp.MAX)
-        runtime /= world_size
-        runtime = time.strftime("%H:%M:%S", time.gmtime(str(runtime.item())))
+    # Save trained model
+    model_path = os.path.join(out_dir, f'cnn_epoch_{epoch+1}.pth')
+    torch.save(model.state_dict(), model_path)
+    print(f'Model saved to {model_path}.')
 
-        if device == 0: # if main gpu
-
-            train_metrics['Train runtime'] = runtime
-
-            # Save trained model
-            model_path = os.path.join(out_dir, f'cnn_epoch_{epoch+1}.pth')
-            torch.save(model.state_dict(), model_path)
-            print(f'Model saved to {model_path}.')
-
-            # Write log about model and training performance
-            hyperparameters = {
-                'total_epochs' : epoch,
-                'batch_size' : batch_size,
-                'learning_rate' : learning_rate,
-                'start_momentum' : start_momentum,
-                'end_momentum' : end_momentum,
-                'momentum_delta' : momentum_delta,
-                'lr_weight_decay' : weight_decay,
-            }
-            save_log(out_dir, datetime.now(), **{**train_metrics, **hyperparameters})
-
-    else: # using single gpu
-            
-        # Final train metric for the log
-            train_metrics["Train runtime"] = time.strftime("%H:%M:%S", time.gmtime(runtime))
-
-            # Save trained model
-            model_path = os.path.join(out_dir, f'cnn_epoch_{epoch+1}.pth')
-            torch.save(model.state_dict(), model_path)
-            print(f'Model saved to {model_path}.')
-
-            # Write log about model and training performance
-            hyperparameters = {
-                'total_epochs' : epoch,
-                'batch_size' : batch_size,
-                'learning_rate' : learning_rate,
-                'start_momentum' : start_momentum,
-                'end_momentum' : end_momentum,
-                'momentum_delta' : momentum_delta,
-                'lr_weight_decay' : weight_decay,
-            }
-            save_log(out_dir, datetime.now(), **{**train_metrics, **hyperparameters})
+    # Write log about model and training performance
+    save_log(out_dir, datetime.now(), **{**train_metrics, **hyperparameters})
 
 
 def train(rank, 
@@ -284,7 +239,16 @@ def train(rank,
 
     # Initialise SGD optimiser
     optimizer = optim.SGD(model.parameters(), lr=learning_rate, momentum=start_momentum, weight_decay=weight_decay)
-
+    
+    # For writing logs
+    hyperparameters = {
+        'batch_size' : batch_size,
+        'learning_rate' : learning_rate,
+        'start_momentum' : start_momentum,
+        'end_momentum' : end_momentum,
+        'momentum_delta' : momentum_delta,
+        'lr_weight_decay' : weight_decay,
+    }
     train_metrics = {
         "Average BCE loss per train epoch" : [],
         "Average accuracy per train epoch" : [],
@@ -356,11 +320,15 @@ def train(rank,
             train_metrics['Average val auc per train epoch'].append(round(avg_val_auc, 2))
 
             # Handle early stopping if required and if on the main gpu
-            if early_stopping_patience != -1 and verbose:
+            if early_stopping_patience != -1 and verbose:  
 
                 if best_avg_val_auc < avg_val_auc:
-                    # If current validation score is better then save the model
-                    save(model, out_dir, train_metrics, momentum_delta, train_start_time, epoch, multi_gpu, device, world_size)
+                    # If current validation score is better then save the model and the log  
+                    hyperparameters['total_epochs'] = epoch
+                    train_metrics['Train runtime'] = time.strftime("%H:%M:%S", time.gmtime(time.time() - train_start_time))
+
+                    save(model, out_dir, train_metrics, train_start_time, epoch, hyperparameters, multi_gpu, device)
+
                     epochs_since_checkpoint = 0
                     best_avg_val_auc = avg_val_auc
                 else:
@@ -380,6 +348,7 @@ def train(rank,
                 print(f"Epoch [{epoch+1}/{total_epochs}] (time: {epoch_time}), Train BCE loss: {avg_train_loss:.4f}, Train accuracy: {train_accuracy:.2f}")
     
     if multi_gpu:
+        # Wait for each gpu to finish the current epoch before starting the next
         dist.barrier()
         if dist.is_initialized():
                 dist.destroy_process_group()
