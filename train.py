@@ -327,7 +327,7 @@ def train(rank,
             train_metrics['Average val auc per train epoch'].append(round(avg_val_auc, 2))
 
             # Handle early stopping if required and if on the main gpu and don't bother for the first 30 epochs
-            if early_stopping_patience != -1 and verbose and epoch > 30:  
+            if early_stopping_patience != -1 and not multi_gpu and epoch > 30:  
 
                 if best_avg_val_auc < avg_val_auc:
                     # If current validation score is better then save the model and the log  
@@ -363,6 +363,9 @@ def train(rank,
     if verbose:
         print('Done training.')
 
+    # Save final model
+    save(model, out_dir, train_metrics, epoch, hyperparameters)
+
 
 
 if __name__ == '__main__':
@@ -382,7 +385,7 @@ if __name__ == '__main__':
     parser.add_argument('--conv1_weight_constraint', type=float, help="L2 norm constraint in the first conv layer", default=0.1)
     parser.add_argument('-using_windows', help='Whether the script is being executed on a Windows machine (default=False)', action='store_true')
     parser.add_argument('--improvements', type=int, help='If to use improvements and what improvements to use. 0: none, 1: blur model', default=0)
-    parser.add_argument('--early_stopping_patience', type=int, help='How many epochs to wait without validation improvement before early stopping (default=-1 no early stopping)', default=-1)
+    parser.add_argument('--early_stopping_patience', type=int, help='How many epochs to wait without validation improvement before early stopping. NOTE: NOT SUPPORTED FOR MULTI-GPU USE (default=-1 no early stopping)', default=-1)
     args = parser.parse_args()
     
     data_dir = args.data_dir
