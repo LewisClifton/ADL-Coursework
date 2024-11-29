@@ -6,7 +6,7 @@ https://openaccess.thecvf.com/content_cvpr_2015/papers/Liu_Predicting_Eye_Fixati
 
 ## How to Run
 
-The scripts in this repo assumes it is being run using Blue Crystal 4.
+The scripts in this repo assumes it is being run using the lab machines
 
 1. Create the conda environment with necessary packages (Pytorch, Pillow, Scipy, Numpy):
    ```
