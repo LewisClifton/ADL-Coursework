@@ -3,12 +3,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-def get_blur_filter(sigma, kernel_size):
+def get_blur_filter(sigma, kernel_size, device):
     # Get the 2D Gaussian blue kernel
     # Adapted to torch from https://www.geeksforgeeks.org/how-to-generate-2-d-gaussian-array-using-numpy/
 
     # Create horizontal and vertical kernel
     x, y = torch.meshgrid( torch.linspace(-1, 1, kernel_size) , torch.linspace(-1, 1, kernel_size), indexing="xy" )
+
+    x = x.to(device)
+    y = y.to(device)
 
     # Create the filter using the 2D Gaussian equation 
     filter = torch.exp(-((x ** 2) + (y ** 2)) / (2 * (sigma ** 2)))
@@ -40,7 +43,7 @@ class BlurLayer(nn.Module):
         sigma = self.sqrt_sigma ** 2
 
         # Get gaussian filter from the learned sigma
-        filter = get_blur_filter(sigma, self.kernel_size)
+        filter = get_blur_filter(sigma, self.kernel_size, x.device)
 
         return F.conv2d(x, weight=filter, padding='same', groups=self.in_channels)
 
