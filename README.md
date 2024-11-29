@@ -6,8 +6,9 @@ https://openaccess.thecvf.com/content_cvpr_2015/papers/Liu_Predicting_Eye_Fixati
 
 
 ## How to run
+**I STRONGLY RECCOMMEND RUNNING ON THE LAB MACHINE**
 
-The scripts in this repo assumes it is being run using the lab machines. There is multi-gpu support for BC4 but it doesn't support validation metrics during training because Distributed Data Parallel made it tricky to synchronise metrics for creating model checkpoints (i.e. if running `train.py`, set `--use_val=0`). I highly advise running on the lab machine.
+The scripts in this repo assumes it is being run using the lab machines. I reccomend using the lab machine as there have been changes made to the script which haven't been tested on BC4 due to little availability during the final cw week. Also the multi-gpu training functionality doesn't support validation metrics during training because Distributed Data Parallel made it tricky to synchronise metrics for creating model checkpoints (i.e. if running `train.py`, set `--use_val=0`). 
 
 1. Create the conda environment with necessary packages (Pytorch (cuda), Pillow, Scipy, Numpy)
    If using the lab machine use the conda env for COMSM0159 as the Applied Deep Learning one has the wrong version of Scipy. 
@@ -42,6 +43,9 @@ The full list of flags can be given using `python train.py -h` but is also given
 
 
 ## How to run eval.py
+
+There are no models included as I they are stored on my lab machine user area. So running eval assumes you have trained a model.
+
 Basic usage:
    ```
    python eval.py --data_dir=<DATA_DIR> --out_dir=<OUT_DIR> --model_path=<MODEL_PATH>
