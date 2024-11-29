@@ -89,12 +89,6 @@ class ImprovedMrCNNStream(nn.Module):
         x = self.relu(x)
         x = self.dropout1(x)
         x = self.pool(x)
-
-        # Gaussian maps
-        gaussian_maps = self.gaussian_priors(x.shape[3], x.shape[4])
-        x = torch.cat([x, gaussian_maps], dim=1)
-        x = self.conv4(x)
-
         
         # FC layer at end of stream
         x = torch.flatten(x, start_dim=1)
