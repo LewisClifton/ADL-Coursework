@@ -52,6 +52,7 @@ class ImprovedMrCNNStream(nn.Module):
     def __init__(self, blur_kernel_size, blur_sqrt_sigma_initial):
         super(ImprovedMrCNNStream, self).__init__()
         
+        # Add the blur layer the rest of this class is the same as in model.py
         self.blur1 = BlurLayer(in_channels=3, kernel_size=blur_kernel_size, sqrt_sigma_initial=blur_sqrt_sigma_initial)
     
         self.conv1 = nn.Conv2d(in_channels=3, out_channels=96, kernel_size=7, stride=1, padding=0)
