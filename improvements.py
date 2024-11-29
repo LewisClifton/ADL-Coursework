@@ -45,7 +45,7 @@ class BlurLayer(nn.Module):
         # Get gaussian filter from the learned sigma
         filter = get_blur_filter(sigma, self.kernel_size, x.device)
 
-        return F.conv2d(x, weight=filter, padding='same', groups=self.in_channels)
+        return F.conv2d(x, weight=filter, padding='same')
 
 
 class ImprovedMrCNNStream(nn.Module):
