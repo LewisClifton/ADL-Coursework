@@ -190,6 +190,7 @@ def train(rank,
           conv1_weight_constraint,
           weight_decay,
           early_stopping_patience,
+          improvements,
           using_windows):
     
     
@@ -228,7 +229,10 @@ def train(rank,
         os.makedirs(out_dir, exist_ok=True)
 
     # Create the model
-    model = MrCNN().to(rank)
+    if improvements:
+        model = ImprovedMrCNN().to(rank)
+    else:
+        model = MrCNN().to(rank)
 
     # Wrap model with DDP if necessary
     if multi_gpu:
@@ -312,7 +316,7 @@ def train(rank,
                 # Get average validation auc over all gpus
                 dist.barrier()
 
-                avg_val_auc= torch.tensor(avg_val_auc).to(rank)
+                avg_val_auc = torch.tensor(avg_val_auc).to(rank)
                 torch.distributed.all_reduce(avg_val_auc, op=torch.distributed.ReduceOp.SUM)
                 avg_val_auc /= world_size
                 avg_val_auc = avg_val_auc.item()
@@ -375,7 +379,7 @@ if __name__ == '__main__':
     parser.add_argument('--lr_weight_decay', type=float, help="Learning rate weight decay", default=2e-4)
     parser.add_argument('--conv1_weight_constraint', type=float, help="L2 norm constraint in the first conv layer", default=0.1)
     parser.add_argument('--using_windows', type=bool, help='Whether the script is being executed on a Windows machine (default=False)', default=False)
-    parser.add_argument('--improvements', type=int, help='If to use improvements and what improvements to use. 0: none, 1: adam optimizer', default=0)
+    parser.add_argument('--improvements', type=int, help='If to use improvements and what improvements to use. 0: none, 1: blur model', default=0)
     parser.add_argument('--early_stopping_patience', type=int, help='How many epochs to wait without validation improvement before early stopping (default=-1 no early stopping)', default=-1)
     args = parser.parse_args()
     
@@ -395,6 +399,7 @@ if __name__ == '__main__':
 
     # Get improvements
     early_stopping_patience = args.early_stopping_patience
+    improvements = args.improvements
 
     # Initialise gpus
     world_size = args.num_gpus 
@@ -415,6 +420,7 @@ if __name__ == '__main__':
               conv1_weight_constraint,
               weight_decay,
               early_stopping_patience,
+              improvements,
               True) # using windows
     else:
         mp.spawn(
@@ -432,6 +438,7 @@ if __name__ == '__main__':
                   conv1_weight_constraint,
                   weight_decay,
                   early_stopping_patience,
+                  improvements,
                   False), # using windows
             nprocs=world_size)
     

@@ -1,43 +1,55 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
 
-class GaussianPriorMap(nn.Module):
-    def __init__(self, N=16):
-        super(GaussianPriorMap, self).__init__()
 
-        self.N = N
+def get_blur_filter(sigma, kernel_size):
+    # Get the 2D Gaussian blue kernel
+    # Adapted to torch from https://www.geeksforgeeks.org/how-to-generate-2-d-gaussian-array-using-numpy/
 
-        self.mean_x = nn.Parameter(torch.randn(N))
-        self.mean_y = nn.Parameter(torch.randn(N))
-        self.std_x = nn.Parameter(torch.randn(N)) 
-        self.std_y = nn.Parameter(torch.randn(N))
-    
-    @staticmethod
-    def gaussian_f(x, y, mean_x, mean_y, std_x, std_y):
-        return (1 / (2 * np.pi * std_x * std_y)) * torch.exp(-((x - mean_x) ** 2 / (2 * std_x ** 2) + (y - mean_y) ** 2 / (2 * std_y ** 2)))
+    # Create horizontal and vertical kernel
+    x, y = torch.meshgrid( torch.linspace(-1, 1, kernel_size) , torch.linspace(-1, 1, kernel_size), indexing="xy" )
 
-    def forward(self, map_width, map_height):
+    # Create the filter using the 2D Gaussian equation 
+    filter = torch.exp(-((x ** 2) + (y ** 2)) / (2 * (sigma ** 2)))
 
-        grid_x, grid_y = torch.meshgrid(torch.arange(0, map_width), torch.arange(0, map_height))
-        grid_x = grid_x.float()
-        grid_y = grid_y.float()
+    # Normalize
+    filter = F.normalize(filter)
 
-        for i in range(self.N):
-            gaussian_map = GaussianPriorMap.gaussian_f(grid_x, grid_y, self.mu_x[i], self.mu_y[i], self.sigma_x[i], self.sigma_y[i])
-            gaussian_maps.append(gaussian_map)
+    # To use kernel in conv2d function kernel should be shape  ( out_channels=3 , in_channels=3 , kernel_size , kernel_size) 
+    filter = torch.stack((filter, filter, filter), dim=0) # input channels
+    filter = torch.stack((filter, filter, filter), dim=0) # output channels
 
-        gaussian_maps = [GaussianPriorMap.gaussian_f(grid_x, grid_y, self.mu_x[i], self.mu_y[i], self.sigma_x[i], self.sigma_y[i]) for _ in range(self.N)]
+    return filter
 
-        gaussian_maps = torch.stack(gaussian_maps, dim=0).unsqueeze(0)
 
-        return gaussian_map
+class BlurLayer(nn.Module):
+    def __init__(self, in_channels=3, kernel_size=5, sqrt_sigma_initial=1.0):
+        super(BlurLayer, self).__init__()
+
+        self.in_channels = in_channels
+        self.kernel_size = kernel_size
+        
+        # Train for the sqrt of the sigma to keep sigma positie when calculating Gaussian
+        self.sqrt_sigma = nn.Parameter( torch.tensor(sqrt_sigma_initial) )
+
+    def forward(self, x):
+        # Applying blurring to x using a learned level of blurring
+
+        # Get actual sigma
+        sigma = self.sqrt_sigma ** 2
+
+        # Get gaussian filter from the learned sigma
+        filter = get_blur_filter(sigma, self.kernel_size)
+
+        return F.conv2d(x, weight=filter, padding='same', groups=self.in_channels)
+
 
 class ImprovedMrCNNStream(nn.Module):
-    def __init__(self):
+    def __init__(self, blur_kernel_size, blur_sqrt_sigma_initial):
         super(ImprovedMrCNNStream, self).__init__()
         
+        self.blur1 = BlurLayer(in_channels=3, kernel_size=blur_kernel_size, sqrt_sigma_initial=blur_sqrt_sigma_initial)
     
         self.conv1 = nn.Conv2d(in_channels=3, out_channels=96, kernel_size=7, stride=1, padding=0)
         self.conv2 = nn.Conv2d(in_channels=96, out_channels=160, kernel_size=3, stride=1, padding=0)
@@ -46,8 +58,6 @@ class ImprovedMrCNNStream(nn.Module):
         self.dropout1 = nn.Dropout(p=0.5)
 
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
-
-        self.gaussian_priors = GaussianPriorMap(N=10)
 
         self.conv4 = nn.Conv2d(in_channels=288 + 10, out_channels=512, kernel_size=3, stride=1, padding=0)
 
@@ -58,6 +68,9 @@ class ImprovedMrCNNStream(nn.Module):
         self.relu = nn.ReLU()
 
     def forward(self, x):
+        # Blur layer
+        x = self.blur1(x)
+
         # First layer
         x = self.conv1(x)
         x = self.relu(x)
@@ -89,13 +102,14 @@ class ImprovedMrCNNStream(nn.Module):
         # Return stream output
         return out
 
+
 class ImprovedMrCNN(nn.Module):
     def __init__(self):
         super(ImprovedMrCNN, self).__init__()
 
-        self.stream1 = ImprovedMrCNNStream()
-        self.stream2 = ImprovedMrCNNStream()
-        self.stream3 = ImprovedMrCNNStream()
+        self.stream1 = ImprovedMrCNNStream(blur_kernel_size = 3, blur_sqrt_sigma_initial = 0.5)
+        self.stream2 = ImprovedMrCNNStream(blur_kernel_size = 5, blur_sqrt_sigma_initial = 0.75)
+        self.stream3 = ImprovedMrCNNStream(blur_kernel_size = 7, blur_sqrt_sigma_initial = 1)
 
         self.fc = nn.Linear(in_features=(512 * 3), out_features=512)
 
