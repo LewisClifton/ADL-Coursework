@@ -10,6 +10,7 @@ from dataset import MIT
 from model import MrCNN
 from metrics import calculate_auc
 from utils import *
+from improvements import ImprovedMrCNN
 
 # Set up cuda
 torch.backends.cudnn.enabled = True
@@ -110,7 +111,8 @@ def evaluate(model, test_loader, test_data, GT_fixations_dir, image_dir, num_sav
 def main(data_dir,
          out_dir,
          model_path,
-         num_saved_images):
+         num_saved_images,
+         improvements):
 
     # Get train and validation data
     print('Loading dataset...')
@@ -124,7 +126,10 @@ def main(data_dir,
     test_loader = DataLoader(test_data, batch_size=256)
 
     # Load the trained model
-    model = MrCNN().to(device)
+    if improvements:
+        model = ImprovedMrCNN().to(device)
+    else:
+        model = MrCNN().to(device)
     model = load_model(model, model_path)
 
     # Output directory
@@ -169,6 +174,7 @@ if __name__ == '__main__':
     parser.add_argument('--data_dir', type=str, help="Path to directory for dataset", required=True)
     parser.add_argument('--out_dir', type=str, help="Path to directory for saving model/log/images", required=True)
     parser.add_argument('--model_path', type=str, help="Path of model to evaluate")
+    parser.add_argument('--improvements', type=int, help='If to use improvements and what improvements to use. 0: none, 1: blur model', default=0)
     parser.add_argument('--num_saved_images', type=int, help="Number of comparison images to save (-1 for all)", default=0)
     args = parser.parse_args()
     
@@ -176,10 +182,12 @@ if __name__ == '__main__':
     out_dir = args.out_dir
     model_path = args.model_path
     num_saved_images = args.num_saved_images
+    improvements = args.improvements
 
     main(data_dir,
          out_dir,
          model_path,
-         num_saved_images)
+         num_saved_images,
+         improvements)
     
     
