@@ -287,15 +287,16 @@ def train(rank,
             # Average metrics over all gpus
             dist.barrier() 
 
-            avg_train_loss= torch.tensor(avg_train_loss).to(rank)
-            torch.distributed.all_reduce(avg_train_loss, op=torch.distributed.ReduceOp.SUM)
-            avg_train_loss /= world_size
-            avg_train_loss = avg_train_loss.item()
+            if rank == 0:
+                avg_train_loss= torch.tensor(avg_train_loss).to(rank)
+                torch.distributed.all_reduce(avg_train_loss, op=torch.distributed.ReduceOp.SUM)
+                avg_train_loss /= world_size
+                avg_train_loss = avg_train_loss.item()
 
-            train_accuracy= torch.tensor(train_accuracy).to(rank)
-            torch.distributed.all_reduce(train_accuracy, op=torch.distributed.ReduceOp.SUM)
-            train_accuracy /= train_accuracy
-            train_accuracy = train_accuracy.item()
+                train_accuracy= torch.tensor(train_accuracy).to(rank)
+                torch.distributed.all_reduce(train_accuracy, op=torch.distributed.ReduceOp.SUM)
+                train_accuracy /= world_size
+                train_accuracy = train_accuracy.item()
 
         # Log this epoch's training metrics
         train_metrics["Average BCE loss per train epoch"].append(round(avg_train_loss, 2))
@@ -316,10 +317,11 @@ def train(rank,
                 # Get average validation auc over all gpus
                 dist.barrier()
 
-                avg_val_auc = torch.tensor(avg_val_auc).to(rank)
-                torch.distributed.all_reduce(avg_val_auc, op=torch.distributed.ReduceOp.SUM)
-                avg_val_auc /= world_size
-                avg_val_auc = avg_val_auc.item()
+                if rank == 0:
+                    avg_val_auc = torch.tensor(avg_val_auc).to(rank)
+                    torch.distributed.all_reduce(avg_val_auc, op=torch.distributed.ReduceOp.SUM)
+                    avg_val_auc /= world_size
+                    avg_val_auc = avg_val_auc.item()
 
             # Log this epoch's validation metrics
             train_metrics['Average val auc per train epoch'].append(round(avg_val_auc, 2))
