@@ -143,8 +143,8 @@ def val_epoch(model, val_loader, val_data, GT_fixations_dir, device):
         targets = {}
 
         for map_idx in range(saliency_maps.shape[0]):
-            _, H, W = val_data.dataset[map_idx]["X"].cpu().numpy().shape
-            image_name = val_data.dataset[map_idx]["file"].replace(".jpeg", "")
+            _, H, W = val_data.dataset[map_idx]['X'].cpu().numpy().shape
+            image_name = val_data.dataset[map_idx]['file'].replace('.jpeg', '')
 
             # Convert the NumPy array to a PIL Image
             saliency_map = Image.fromarray(saliency_maps[map_idx].T)
@@ -153,7 +153,7 @@ def val_epoch(model, val_loader, val_data, GT_fixations_dir, device):
             pred_fixMap = np.array( saliency_map.resize((W, H), resample=Image.BICUBIC) )
 
             # Obtain the ground truth fixation map
-            GT_fixMap = Image.open(os.path.join(GT_fixations_dir, f"{image_name}_fixMap.jpg"))
+            GT_fixMap = Image.open(os.path.join(GT_fixations_dir, f'{image_name}_fixMap.jpg'))
             GT_fixMap = np.array(GT_fixMap)
 
             # Add to dictionary
@@ -204,14 +204,14 @@ def train(rank,
     # Get train and validation data
     if verbose: 
         print('Loading datasets...')
-    train_data = MIT(dataset_path=os.path.join(data_dir, "train_data.pth.tar"))
+    train_data = MIT(dataset_path=os.path.join(data_dir, 'train_data.pth.tar'))
     if use_val:
-        val_data = MIT(dataset_path=os.path.join(data_dir, "val_data.pth.tar"))
+        val_data = MIT(dataset_path=os.path.join(data_dir, 'val_data.pth.tar'))
     if verbose:
-        print("Loaded datasets.")
+        print('Loaded datasets.')
 
     # Ground truth directory
-    GT_fixations_dir = os.path.join(data_dir, "ALLFIXATIONMAPS")
+    GT_fixations_dir = os.path.join(data_dir, 'ALLFIXATIONMAPS')
 
     # Create data loaders
     if multi_gpu:
@@ -261,9 +261,9 @@ def train(rank,
         'lr_weight_decay' : weight_decay,
     }
     train_metrics = {
-        "Average BCE loss per train epoch" : [],
-        "Average accuracy per train epoch" : [],
-        "Average val auc per train epoch" : [] 
+        'Average BCE loss per train epoch' : [],
+        'Average accuracy per train epoch' : [],
+        'Average val auc per train epoch' : [] 
     }
 
     # For early stopping
@@ -299,8 +299,8 @@ def train(rank,
                 train_accuracy = train_accuracy.item()
 
         # Log this epoch's training metrics
-        train_metrics["Average BCE loss per train epoch"].append(round(avg_train_loss, 2))
-        train_metrics["Average accuracy per train epoch"].append(round(train_accuracy, 2))
+        train_metrics['Average BCE loss per train epoch'].append(round(avg_train_loss, 2))
+        train_metrics['Average accuracy per train epoch'].append(round(train_accuracy, 2))
 
         # Do validation
         if use_val:
@@ -310,7 +310,7 @@ def train(rank,
             # Print epoch results with validation score
             epoch_time = time.strftime("%H:%M:%S", time.gmtime((time.time() - epoch_start_time)))
             if verbose:
-                print(f"Epoch [{epoch+1}/{total_epochs}] (time: {epoch_time}), Train BCE loss: {avg_train_loss:.4f}, Train accuracy: {train_accuracy:.2f}, Validaton mean auc: {avg_val_auc}")
+                print(f'Epoch [{epoch+1}/{total_epochs}] (time: {epoch_time}), Train BCE loss: {avg_train_loss:.4f}, Train accuracy: {train_accuracy:.2f}, Validaton mean auc: {avg_val_auc}')
 
             
             if multi_gpu:
@@ -352,7 +352,7 @@ def train(rank,
             # Print epoch results without validation score
             epoch_time = time.strftime("%H:%M:%S", time.gmtime((time.time() - epoch_start_time)))
             if verbose:
-                print(f"Epoch [{epoch+1}/{total_epochs}] (time: {epoch_time}), Train BCE loss: {avg_train_loss:.4f}, Train accuracy: {train_accuracy:.2f}")
+                print(f'Epoch [{epoch+1}/{total_epochs}] (time: {epoch_time}), Train BCE loss: {avg_train_loss:.4f}, Train accuracy: {train_accuracy:.2f}')
     
     if multi_gpu:
         # Wait for each gpu to finish the current epoch before starting the next
@@ -372,17 +372,17 @@ if __name__ == '__main__':
 
     # Command line args
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_dir', type=str, help="Path to directory for dataset containing *_data.pth.tar", required=True)
-    parser.add_argument('--out_dir', type=str, help="Path to directory for saving model/log (default to cwd)", required='.')
-    parser.add_argument('--epochs', type=int, help="Number of epochs to train with (default=20)", default=20)
-    parser.add_argument('--num_gpus', type=int, help="Number of gpus to train with - i.e. more than 1 if using BC4 (default=1)", default=1)
+    parser.add_argument('--data_dir', type=str, help='Path to directory for dataset containing *_data.pth.tar', required=True)
+    parser.add_argument('--out_dir', type=str, help='Path to directory for saving model/log (default to cwd)', required='.')
+    parser.add_argument('--epochs', type=int, help='Number of epochs to train with (default=20)', default=20)
+    parser.add_argument('--num_gpus', type=int, help='Number of gpus to train with - i.e. more than 1 if using BC4 (default=1)', default=1)
     parser.add_argument('--use_val', type=int, help='Track validation metrics during training (default=0 (false))',default=0)
-    parser.add_argument('--batch_size', type=int, help="Minibatch size (default=256)", default=256)
-    parser.add_argument('--learning_rate', type=float, help="Learning rate (default=0.002)", default=0.002)
-    parser.add_argument('--start_momentum', type=float, help="Optimiser start momentum (default=0.9)", default=0.9)
-    parser.add_argument('--end_momentum', type=float, help="Optimiser end momentum (default=0.99)", default=0.99)
-    parser.add_argument('--lr_weight_decay', type=float, help="Learning rate weight decay (default=2e-4)", default=2e-4)
-    parser.add_argument('--conv1_weight_constraint', type=float, help="L2 norm constraint in the first conv layer (default=0.1)", default=0.1)
+    parser.add_argument('--batch_size', type=int, help='Minibatch size (default=256)', default=256)
+    parser.add_argument('--learning_rate', type=float, help='Learning rate (default=0.002)', default=0.002)
+    parser.add_argument('--start_momentum', type=float, help='Optimiser start momentum (default=0.9)', default=0.9)
+    parser.add_argument('--end_momentum', type=float, help='Optimiser end momentum (default=0.99)', default=0.99)
+    parser.add_argument('--lr_weight_decay', type=float, help='Learning rate weight decay (default=2e-4)', default=2e-4)
+    parser.add_argument('--conv1_weight_constraint', type=float, help='L2 norm constraint in the first conv layer (default=0.1)', default=0.1)
     parser.add_argument('--using_windows', type=int, help='Whether the script is being executed on a Windows machine (default=0 (false))', default=1)
     parser.add_argument('--improvements', type=int, help='If to use improvements and what improvements to use. 0: none, 1: blur model (default=0)', default=0)
     parser.add_argument('--early_stopping_patience', type=int, help='How many epochs to wait without validation improvement before early stopping. NOTE: NOT SUPPORTED FOR MULTI-GPU USE (default=-1 no early stopping)', default=-1)
@@ -411,7 +411,7 @@ if __name__ == '__main__':
     using_windows = args.using_windows
 
     if using_windows or world_size == 1:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         train(device, 1,
               data_dir,
               out_dir,

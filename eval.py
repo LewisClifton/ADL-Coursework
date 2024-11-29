@@ -14,7 +14,7 @@ from improvements import ImprovedMrCNN
 
 # Set up cuda
 torch.backends.cudnn.enabled = True
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # Load model
 def load_model(model, model_path):
@@ -25,7 +25,7 @@ def load_model(model, model_path):
     # Go through all the layer names and remove module which is written when saving a DDP model
     model_dict = {}
     for layer_name, layer_shape in model_state_dict.items():
-        layer_name = layer_name.replace("module.", "")
+        layer_name = layer_name.replace('module.', '')
         model_dict[layer_name] = layer_shape
 
     # Apply to intialise model
@@ -76,8 +76,8 @@ def evaluate(model, test_loader, test_data, GT_fixations_dir, image_dir, num_sav
         targets = {}
 
         for map_idx in range(saliency_maps.shape[0]):
-            _, H, W = test_data.dataset[map_idx]["X"].cpu().numpy().shape
-            image_name = test_data.dataset[map_idx]["file"].replace(".jpeg", "")
+            _, H, W = test_data.dataset[map_idx]['X'].cpu().numpy().shape
+            image_name = test_data.dataset[map_idx]['file'].replace('.jpeg', '')
 
             # Convert the NumPy array to a PIL Image
             saliency_map = Image.fromarray(saliency_maps[map_idx].T)
@@ -86,7 +86,7 @@ def evaluate(model, test_loader, test_data, GT_fixations_dir, image_dir, num_sav
             pred_fixMap = np.array( saliency_map.resize((W, H), resample=Image.BICUBIC) )
 
             # Obtain the ground truth fixation map
-            GT_fixMap = Image.open(os.path.join(GT_fixations_dir, f"{image_name}_fixMap.jpg"))
+            GT_fixMap = Image.open(os.path.join(GT_fixations_dir, f'{image_name}_fixMap.jpg'))
             GT_fixMap = np.array(GT_fixMap)
 
             # Add to dictionary
@@ -100,7 +100,7 @@ def evaluate(model, test_loader, test_data, GT_fixations_dir, image_dir, num_sav
                 concatenated_image = Image.fromarray( (concatenated_image).astype(np.uint8) ) 
             
                 # Save the concatenated image
-                concatenated_image.save(os.path.join(image_dir, f"{image_name}_comparison.jpg"))
+                concatenated_image.save(os.path.join(image_dir, f'{image_name}_comparison.jpg'))
 
         # Calculate validation auc metric
         avg_auc = calculate_auc(preds, targets)
@@ -116,11 +116,11 @@ def main(data_dir,
 
     # Get train and validation data
     print('Loading dataset...')
-    test_data = MIT(dataset_path=os.path.join(data_dir, "test_data.pth.tar"))
+    test_data = MIT(dataset_path=os.path.join(data_dir, 'test_data.pth.tar'))
     print('Test dataset loaded.')
 
     # Ground truth directory
-    GT_fixations_dir = os.path.join(data_dir, "ALLFIXATIONMAPS")
+    GT_fixations_dir = os.path.join(data_dir, 'ALLFIXATIONMAPS')
 
     # Create data loaders
     test_loader = DataLoader(test_data, batch_size=256)
@@ -139,7 +139,7 @@ def main(data_dir,
         os.makedirs(out_dir)
 
     # Directory to save images to
-    image_dir = os.path.join(out_dir, "Comparison images")
+    image_dir = os.path.join(out_dir, 'Comparison images')
     if not os.path.exists(image_dir):
         os.makedirs(image_dir, exist_ok=True)
 
@@ -171,11 +171,11 @@ if __name__ == '__main__':
 
     # Command line args
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_dir', type=str, help="Path to directory for dataset", required=True)
-    parser.add_argument('--out_dir', type=str, help="Path to directory for saving model/log/images", required=True)
-    parser.add_argument('--model_path', type=str, help="Path of model to evaluate")
+    parser.add_argument('--data_dir', type=str, help='Path to directory for dataset', required=True)
+    parser.add_argument('--out_dir', type=str, help='Path to directory for saving model/log/images', required=True)
+    parser.add_argument('--model_path', type=str, help='Path of model to evaluate')
     parser.add_argument('--improvements', type=int, help='If to use improvements and what improvements to use. 0: none, 1: blur model', default=0)
-    parser.add_argument('--num_saved_images', type=int, help="Number of comparison images to save (-1 for all)", default=0)
+    parser.add_argument('--num_saved_images', type=int, help='Number of comparison images to save (-1 for all)', default=0)
     args = parser.parse_args()
     
     data_dir = args.data_dir

@@ -6,12 +6,12 @@ from torch.utils.data import DataLoader
 def save_log(out_dir, date, **kwargs):
     # Save a log
     path = os.path.join(out_dir, 'log.txt')
-    with open(path , "w") as f:
-        f.write(f"Date/time of creation : {date}\n")
+    with open(path , 'w') as f:
+        f.write(f'Date/time of creation : {date}\n')
         for k, v in kwargs.items():
             if isinstance(v, list):
                 if len(v) == 0: continue
-            f.write(f"{k} : {v}\n")
+            f.write(f'{k} : {v}\n')
 
     print(f'Saved log to {path}.')
 
@@ -20,7 +20,7 @@ def setup_gpus(rank, world_size):
     # Setup multiple gpus
     os.environ['MASTER_ADDR'] = 'localhost'
     os.environ['MASTER_PORT'] = '12355'
-    dist.init_process_group("nccl", rank=rank, world_size=world_size)
+    dist.init_process_group('nccl', rank=rank, world_size=world_size)
 
 
 def get_data_loader(dataset, rank, world_size, batch_size=32):
