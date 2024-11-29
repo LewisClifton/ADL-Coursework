@@ -389,9 +389,6 @@ if __name__ == '__main__':
     out_dir = args.out_dir
     use_val = args.use_val
 
-    print(use_val)
-    print('ji' if use_val else 'dog')
-
     # Hyperparameters
     total_epochs = args.epochs
     start_epoch = 0
