@@ -102,9 +102,9 @@ class ImprovedMrCNN(nn.Module):
     def __init__(self):
         super(ImprovedMrCNN, self).__init__()
 
-        self.stream1 = ImprovedMrCNNStream(blur_kernel_size = 3, blur_sqrt_sigma_initial = 0.5)
+        self.stream1 = ImprovedMrCNNStream(blur_kernel_size = 7, blur_sqrt_sigma_initial = 0.5)
         self.stream2 = ImprovedMrCNNStream(blur_kernel_size = 5, blur_sqrt_sigma_initial = 0.75)
-        self.stream3 = ImprovedMrCNNStream(blur_kernel_size = 7, blur_sqrt_sigma_initial = 1.0)
+        self.stream3 = ImprovedMrCNNStream(blur_kernel_size = 3, blur_sqrt_sigma_initial = 1.0)
 
         self.fc = nn.Linear(in_features=(512 * 3), out_features=512)
 
